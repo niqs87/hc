@@ -1,4 +1,27 @@
-# Agent Starter for React
+# Jutra (LiveKit + jutra ADK backend)
+
+This repo extends the [LiveKit Agent Starter for React](https://docs.livekit.io/agents) with a **pre-session** flow wired to the **jutra** FastAPI backend (onboarding, text ingest, OCEAN persona snapshot) before the voice portal. Server-side proxies live under `app/api/jutra/*`; `JUTRA_BACKEND_URL` is **never** exposed to the browser.
+
+### Deploy to Cloud Run (`jutra-web`)
+
+Prerequisites: `gcloud` authenticated, same GCP project as the API (e.g. `jutra-493710`).
+
+```bash
+export PROJECT=jutra-493710 REGION=europe-west4
+export LIVEKIT_URL=... LIVEKIT_API_KEY=... LIVEKIT_API_SECRET=...
+export JUTRA_BACKEND_URL=https://jutra-<PROJECT_NUMBER>.europe-west4.run.app
+export AGENT_NAME=Dakota-1d3e   # optional explicit agent dispatch
+
+./scripts/deploy.sh
+```
+
+Smoke tests hit `GET /` and `POST /api/token` with `{"room_config":{}}`. Canonical URL: `https://jutra-web-<PROJECT_NUMBER>.europe-west4.run.app`.
+
+Worker contract for the Python LiveKit agent: backend repo `integrations/voice-worker-contract.md`.
+
+---
+
+## Upstream: Agent Starter for React
 
 This is a starter template for [LiveKit Agents](https://docs.livekit.io/agents) that provides a simple voice interface using [Agents UI](https://livekit.io/ui) components and [LiveKit JavaScript SDK](https://github.com/livekit/client-sdk-js). It supports [voice](https://docs.livekit.io/agents/start/voice-ai), [transcriptions](https://docs.livekit.io/agents/build/text/), and [virtual avatars](https://docs.livekit.io/agents/integrations/avatar).
 

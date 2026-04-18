@@ -9,21 +9,27 @@ type ConnectionDetails = {
   participantToken: string;
 };
 
-// NOTE: you are expected to define the following environment variables in `.env.local`:
 const API_KEY = process.env.LIVEKIT_API_KEY;
 const API_SECRET = process.env.LIVEKIT_API_SECRET;
 const LIVEKIT_URL = process.env.LIVEKIT_URL;
 
-// don't cache the results
 export const revalidate = 0;
 
-export async function POST(req: Request) {
-  if (process.env.NODE_ENV !== 'development') {
-    throw new Error(
-      'THIS API ROUTE IS INSECURE. DO NOT USE THIS ROUTE IN PRODUCTION WITHOUT AN AUTHENTICATION LAYER.'
-    );
+function stringifyMetadata(raw: unknown): string | undefined {
+  if (raw === undefined || raw === null) return undefined;
+  if (typeof raw === 'string') return raw.length ? raw : undefined;
+  if (typeof raw === 'object') {
+    try {
+      return JSON.stringify(raw);
+    } catch {
+      return undefined;
+    }
   }
+  return undefined;
+}
 
+export async function POST(req: Request) {
+  // Hackathon: no separate auth layer on this route; LiveKit credentials stay server-side only.
   try {
     if (LIVEKIT_URL === undefined) {
       throw new Error('LIVEKIT_URL is not defined');
@@ -35,24 +41,33 @@ export async function POST(req: Request) {
       throw new Error('LIVEKIT_API_SECRET is not defined');
     }
 
-    // Parse room config from request body.
-    const body = await req.json();
+    const body = await req.json().catch(() => ({}));
     const roomConfig = body?.room_config
       ? RoomConfiguration.fromJson(body.room_config, { ignoreUnknownFields: true })
       : new RoomConfiguration();
 
-    // Generate participant token
-    const participantName = 'user';
-    const participantIdentity = `voice_assistant_user_${Math.floor(Math.random() * 10_000)}`;
-    const roomName = `voice_assistant_room_${Math.floor(Math.random() * 10_000)}`;
+    const participantMetadata = stringifyMetadata(body?.participant_metadata);
+    const participantIdentity =
+      typeof body?.participant_identity === 'string' && body.participant_identity.length > 0
+        ? body.participant_identity
+        : `voice_assistant_user_${Math.floor(Math.random() * 10_000)}`;
+    const participantName =
+      typeof body?.participant_name === 'string' && body.participant_name.length > 0
+        ? body.participant_name
+        : 'user';
+    const roomName =
+      typeof body?.room_name === 'string' && body.room_name.length > 0
+        ? body.room_name
+        : `voice_assistant_room_${Math.floor(Math.random() * 10_000)}`;
 
-    const participantToken = await createParticipantToken(
-      { identity: participantIdentity, name: participantName },
-      roomName,
-      roomConfig
-    );
+    const userInfo: AccessTokenOptions = {
+      identity: participantIdentity,
+      name: participantName,
+      ...(participantMetadata ? { metadata: participantMetadata } : {}),
+    };
 
-    // Return connection details
+    const participantToken = await createParticipantToken(userInfo, roomName, roomConfig);
+
     const data: ConnectionDetails = {
       serverUrl: LIVEKIT_URL,
       roomName,

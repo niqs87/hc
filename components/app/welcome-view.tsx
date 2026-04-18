@@ -74,12 +74,13 @@ function PixelDivider() {
 
 interface WelcomeViewProps {
   startButtonText: string;
-  onStartCall: () => void;
+  /** First step: open preflight (horizon / onboarding / ingest) before LiveKit. */
+  onBeginPreflight: () => void;
 }
 
 export const WelcomeView = ({
   startButtonText,
-  onStartCall,
+  onBeginPreflight,
   ref,
 }: React.ComponentProps<'div'> & WelcomeViewProps) => {
   return (
@@ -113,7 +114,7 @@ export const WelcomeView = ({
 
         <button
           type="button"
-          onClick={onStartCall}
+          onClick={onBeginPreflight}
           className={cn('pixel-btn clip-pixel-4 mt-10 cursor-pointer')}
         >
           {startButtonText}

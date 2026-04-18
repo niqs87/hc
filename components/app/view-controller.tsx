@@ -1,11 +1,14 @@
 'use client';
 
+import { useState } from 'react';
 import { useTheme } from 'next-themes';
 import { AnimatePresence, motion } from 'motion/react';
 import { useSessionContext } from '@livekit/components-react';
 import type { AppConfig } from '@/app-config';
 import { AgentSessionView_01 } from '@/components/agents-ui/blocks/agent-session-view-01';
+import { PreSessionView } from '@/components/app/pre-session-view';
 import { WelcomeView } from '@/components/app/welcome-view';
+import { useJutraPrefs } from '@/components/app/jutra-prefs-context';
 
 const MotionWelcomeView = motion.create(WelcomeView);
 const MotionSessionView = motion.create(AgentSessionView_01);
@@ -35,24 +38,42 @@ interface ViewControllerProps {
 export function ViewController({ appConfig }: ViewControllerProps) {
   const { isConnected, start } = useSessionContext();
   const { resolvedTheme } = useTheme();
+  const { horizon } = useJutraPrefs();
+  const [stage, setStage] = useState<'welcome' | 'presession'>('welcome');
+
+  const preConnectMessage = `> Portal otwarty (+${horizon} lat). Powiedz, co chcesz dziś usłyszeć od siebie…`;
 
   return (
     <AnimatePresence mode="wait">
-      {/* Welcome view */}
-      {!isConnected && (
+      {!isConnected && stage === 'welcome' && (
         <MotionWelcomeView
           key="welcome"
           {...VIEW_MOTION_PROPS}
           startButtonText={appConfig.startButtonText}
-          onStartCall={start}
+          onBeginPreflight={() => {
+            if (appConfig.backendPreSessionEnabled) {
+              setStage('presession');
+            } else {
+              void start();
+            }
+          }}
         />
       )}
-      {/* Session view */}
+      {!isConnected && stage === 'presession' && appConfig.backendPreSessionEnabled && (
+        <motion.div key="presession" {...VIEW_MOTION_PROPS}>
+          <PreSessionView
+            horizons={appConfig.horizons}
+            startButtonText={appConfig.startButtonText}
+            onBack={() => setStage('welcome')}
+            onStartVoice={() => void start()}
+          />
+        </motion.div>
+      )}
       {isConnected && (
         <MotionSessionView
           key="session-view"
           {...VIEW_MOTION_PROPS}
-          preConnectMessage="> Portal otwarty. Powiedz, co chcesz dziś usłyszeć od siebie za 10 lat…"
+          preConnectMessage={preConnectMessage}
           supportsChatInput={appConfig.supportsChatInput}
           supportsVideoInput={appConfig.supportsVideoInput}
           supportsScreenShare={appConfig.supportsScreenShare}
