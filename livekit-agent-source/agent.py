@@ -46,6 +46,19 @@ AGENT_LLM_MODEL = os.environ.get(
     "AGENT_LLM_MODEL", "google/gemini-3-flash-preview"
 ).strip()
 
+AGENT_TTS_VOICE = os.environ.get("AGENT_TTS_VOICE", "bIHbv24MWmeRgasZH58o").strip()
+AGENT_TTS_VOICE_FEMALE = os.environ.get("AGENT_TTS_VOICE_FEMALE", "").strip()
+AGENT_TTS_VOICE_MALE = os.environ.get("AGENT_TTS_VOICE_MALE", "").strip()
+
+
+def _pick_voice(gender: str) -> str:
+    g = (gender or "u").lower()
+    if g == "f" and AGENT_TTS_VOICE_FEMALE:
+        return AGENT_TTS_VOICE_FEMALE
+    if g == "m" and AGENT_TTS_VOICE_MALE:
+        return AGENT_TTS_VOICE_MALE
+    return AGENT_TTS_VOICE
+
 
 def _mcp_headers() -> dict:
     return {"Authorization": f"Bearer {MCP_BEARER}"} if MCP_BEARER else {}
@@ -118,10 +131,14 @@ def _parse_participant(participant: rtc.Participant) -> dict:
     if not (10 <= base_age <= 80):
         base_age = 15
 
+    gender_raw = str(meta.get("gender") or "").strip().lower()
+    gender = gender_raw if gender_raw in ("f", "m", "u") else "u"
+
     return {
         "uid": uid,
         "display_name": display_name,
         "base_age": base_age,
+        "gender": gender,
     }
 
 
@@ -233,6 +250,7 @@ class JutraAgent(Agent):
                     "message": user_text,
                     "display_name": self._state["display_name"],
                     "base_age": self._state.get("base_age"),
+                    "gender": self._state.get("gender", "u"),
                     "use_rag": True,
                     "fast": True,
                 },
@@ -307,20 +325,23 @@ async def entrypoint(ctx: JobContext):
     participant = await ctx.wait_for_participant()
     state = _parse_participant(participant)
     logger.info(
-        "jutra session state: uid=%s display_name=%s base_age=%s",
+        "jutra session state: uid=%s display_name=%s base_age=%s gender=%s",
         state["uid"],
         state["display_name"],
         state.get("base_age"),
+        state.get("gender"),
     )
 
     persona, chronicle, cold_open = await _boot_persona(state)
+
+    voice_id = _pick_voice(state.get("gender", "u"))
 
     session = AgentSession(
         stt=inference.STT(model="deepgram/nova-3", language="pl"),
         llm=inference.LLM(model=AGENT_LLM_MODEL),
         tts=inference.TTS(
             model="elevenlabs/eleven_multilingual_v2",
-            voice="bIHbv24MWmeRgasZH58o",
+            voice=voice_id,
             language="pl",
         ),
         turn_handling=TurnHandlingOptions(turn_detection=MultilingualModel()),

@@ -623,20 +623,29 @@ async def entrypoint(ctx: JobContext):
     participant = await ctx.wait_for_participant()
     state = _parse_participant(participant)
     logger.info(
-        "jutra session state: uid=%s display_name=%s base_age=%s",
+        "jutra session state: uid=%s display_name=%s base_age=%s gender=%s",
         state["uid"],
         state["display_name"],
         state.get("base_age"),
+        state.get("gender"),
     )
 
     persona, chronicle, cold_open = await _boot_persona(state)
+
+    voice_id = _pick_voice(state.get("gender", "u"))
+    logger.info(
+        "jutra TTS voice selected uid=%s gender=%s voice=%s",
+        state["uid"],
+        state.get("gender"),
+        voice_id,
+    )
 
     session = AgentSession(
         stt=inference.STT(model=AGENT_STT_MODEL, language=AGENT_STT_LANGUAGE),
         llm=inference.LLM(model=AGENT_LLM_MODEL),
         tts=inference.TTS(
             model=AGENT_TTS_MODEL,
-            voice=AGENT_TTS_VOICE,
+            voice=voice_id,
             language=AGENT_TTS_LANGUAGE,
         ),
         turn_handling=TurnHandlingOptions(turn_detection=MultilingualModel()),
