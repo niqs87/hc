@@ -85,7 +85,52 @@ export function JutraPrefsProvider({ children }: { children: React.ReactNode }) 
   const [gender, setGenderState] = useState<Gender>('u');
   const [agedPhotoUrl, setAgedPhotoUrl] = useState<string | null>(null);
 
+  const hydrateFromBackend = useCallback(async (u: string) => {
+    if (!u) return;
+    try {
+      const res = await fetch(
+        `/api/jutra/persona?uid=${encodeURIComponent(u)}`,
+        { cache: 'no-store' }
+      );
+      if (!res.ok) return;
+      const data = (await res.json()) as {
+        display_name?: string;
+        base_age?: number;
+        gender?: string;
+      };
+      if (typeof data.display_name === 'string' && data.display_name.trim() !== '') {
+        setDisplayNameState(data.display_name);
+        try {
+          localStorage.setItem(KEY_NAME, data.display_name);
+        } catch {
+          /* ignore */
+        }
+      }
+      if (typeof data.base_age === 'number' && !Number.isNaN(data.base_age)) {
+        const clamped = Math.min(80, Math.max(10, Math.round(data.base_age)));
+        setBaseAgeState(clamped);
+        try {
+          localStorage.setItem(KEY_BASE_AGE, String(clamped));
+        } catch {
+          /* ignore */
+        }
+      }
+      if (typeof data.gender === 'string') {
+        const g = normalizeGender(data.gender);
+        setGenderState(g);
+        try {
+          localStorage.setItem(KEY_GENDER, g);
+        } catch {
+          /* ignore */
+        }
+      }
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
   useEffect(() => {
+    let activeUid = '';
     try {
       const t = localStorage.getItem(KEY_AUTH);
       const u = localStorage.getItem(KEY_UID);
@@ -94,6 +139,7 @@ export function JutraPrefsProvider({ children }: { children: React.ReactNode }) 
         setAuthTokenState(t);
         setUidState(u);
         if (e) setAccountEmail(e);
+        activeUid = u;
       }
 
       const n = localStorage.getItem(KEY_NAME);
@@ -108,7 +154,14 @@ export function JutraPrefsProvider({ children }: { children: React.ReactNode }) 
     } finally {
       setReady(true);
     }
-  }, []);
+    // Re-hydrate from backend on every mount (page reload with an existing
+    // auth session). This plugs the gap for legacy users whose KEY_GENDER was
+    // never written to localStorage and lets the backend's inferred gender
+    // reach the LiveKit token metadata.
+    if (activeUid) {
+      void hydrateFromBackend(activeUid);
+    }
+  }, [hydrateFromBackend]);
 
   const setDisplayName = (n: string) => {
     setDisplayNameState(n);
@@ -139,60 +192,22 @@ export function JutraPrefsProvider({ children }: { children: React.ReactNode }) 
     }
   };
 
-  const setAuthSession = useCallback((s: AuthSession) => {
-    setAuthTokenState(s.access_token);
-    setUidState(s.uid);
-    setAccountEmail(s.email);
-    try {
-      localStorage.setItem(KEY_AUTH, s.access_token);
-      localStorage.setItem(KEY_UID, s.uid);
-      localStorage.setItem(KEY_EMAIL, s.email);
-    } catch {
-      /* ignore */
-    }
-    void (async () => {
+  const setAuthSession = useCallback(
+    (s: AuthSession) => {
+      setAuthTokenState(s.access_token);
+      setUidState(s.uid);
+      setAccountEmail(s.email);
       try {
-        const res = await fetch(
-          `/api/jutra/persona?uid=${encodeURIComponent(s.uid)}`,
-          { cache: 'no-store' }
-        );
-        if (!res.ok) return;
-        const data = (await res.json()) as {
-          display_name?: string;
-          base_age?: number;
-          gender?: string;
-        };
-        if (typeof data.display_name === 'string' && data.display_name.trim() !== '') {
-          setDisplayNameState(data.display_name);
-          try {
-            localStorage.setItem(KEY_NAME, data.display_name);
-          } catch {
-            /* ignore */
-          }
-        }
-        if (typeof data.base_age === 'number' && !Number.isNaN(data.base_age)) {
-          const clamped = Math.min(80, Math.max(10, Math.round(data.base_age)));
-          setBaseAgeState(clamped);
-          try {
-            localStorage.setItem(KEY_BASE_AGE, String(clamped));
-          } catch {
-            /* ignore */
-          }
-        }
-        if (typeof data.gender === 'string') {
-          const g = normalizeGender(data.gender);
-          setGenderState(g);
-          try {
-            localStorage.setItem(KEY_GENDER, g);
-          } catch {
-            /* ignore */
-          }
-        }
+        localStorage.setItem(KEY_AUTH, s.access_token);
+        localStorage.setItem(KEY_UID, s.uid);
+        localStorage.setItem(KEY_EMAIL, s.email);
       } catch {
         /* ignore */
       }
-    })();
-  }, []);
+      void hydrateFromBackend(s.uid);
+    },
+    [hydrateFromBackend]
+  );
 
   const logout = useCallback(() => {
     setAuthTokenState('');

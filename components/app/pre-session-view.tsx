@@ -71,13 +71,23 @@ export function PreSessionView({
           setSeedError((j as { error?: string }).error ?? `seed ${res.status}`);
         } else {
           setSeedError(null);
+          // Backend returns the resolved (stored or inferred) gender. Adopt
+          // it so the LiveKit token metadata carries the real value instead
+          // of the default "u" — that's what drives voice selection in the
+          // agent worker.
+          const body = (await res.json().catch(() => null)) as
+            | { gender?: string }
+            | null;
+          if (body && (body.gender === 'f' || body.gender === 'm' || body.gender === 'u')) {
+            if (body.gender !== gender) setGender(body.gender);
+          }
         }
       } catch (e) {
         setSeedError(e instanceof Error ? e.message : 'seed failed');
       }
       await refreshPersona();
     })();
-  }, [ready, uid, displayName, baseAge, gender, refreshPersona]);
+  }, [ready, uid, displayName, baseAge, gender, setGender, refreshPersona]);
 
   return (
     <div className="flex flex-col items-center px-6 pb-28 text-center">
