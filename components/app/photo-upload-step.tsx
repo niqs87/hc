@@ -6,29 +6,20 @@ import { cn } from '@/lib/shadcn/utils';
 type AgedStatus = 'pending' | 'done' | 'error';
 type OverallStatus = 'none' | 'uploading' | 'processing' | 'done' | 'error';
 
-const HORIZONS = [5, 10, 20, 30] as const;
-
-function photoImageUrl(uid: string, horizon: number, ts?: number) {
-  const base = `/api/jutra/photo/image?uid=${encodeURIComponent(uid)}&horizon=${horizon}`;
-  return ts ? `${base}&t=${ts}` : base;
-}
-function originalImageUrl(uid: string) {
-  return `/api/jutra/photo/image?uid=${encodeURIComponent(uid)}&original=1`;
+function photoImageUrl(uid: string, kind: 'original' | 'aged') {
+  return `/api/jutra/photo/image?uid=${encodeURIComponent(uid)}&kind=${kind}`;
 }
 
 export function PhotoUploadStep({
   uid,
-  horizon,
-  onPhotosReady,
+  onAgedPhotoReady,
 }: {
   uid: string;
-  horizon: number;
-  onPhotosReady: (urls: Record<number, string>) => void;
+  onAgedPhotoReady: (url: string | null) => void;
 }) {
   const [overallStatus, setOverallStatus] = useState<OverallStatus>('none');
-  const [agedStatus, setAgedStatus] = useState<Record<number, AgedStatus>>({});
+  const [agedStatus, setAgedStatus] = useState<AgedStatus>('pending');
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
-  const [uploadTs, setUploadTs] = useState<number>(0);
   const fileRef = useRef<HTMLInputElement>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -48,27 +39,21 @@ export function PhotoUploadStep({
       if (!res.ok) return;
       const data = (await res.json()) as {
         overall_status: string;
-        aged: Record<string, string>;
+        aged: { status: string; gcs_path?: string };
       };
 
       if (data.overall_status === 'none') return;
 
-      const newAged: Record<number, AgedStatus> = {};
-      for (const [h, s] of Object.entries(data.aged)) {
-        newAged[Number(h)] = s as AgedStatus;
-      }
-      setAgedStatus(newAged);
+      const s = (data.aged?.status ?? 'pending') as AgedStatus;
+      setAgedStatus(s);
 
       if (data.overall_status === 'done') {
         setOverallStatus('done');
         stopPolling();
-        const urls: Record<number, string> = {};
-        for (const h of HORIZONS) {
-          if (newAged[h] === 'done') urls[h] = photoImageUrl(uid, h, uploadTs);
-        }
+        const url = s === 'done' ? photoImageUrl(uid, 'aged') : null;
         // eslint-disable-next-line no-console
-        console.info('[jutra/photo] all horizons ready', { uid, horizons: Object.keys(urls) });
-        onPhotosReady(urls);
+        console.info('[jutra/photo] aged photo ready', { uid, hasUrl: Boolean(url) });
+        onAgedPhotoReady(url);
       } else if (data.overall_status === 'error') {
         // eslint-disable-next-line no-console
         console.error('[jutra/photo] aging pipeline reported error', { uid });
@@ -80,9 +65,8 @@ export function PhotoUploadStep({
     } catch {
       // ignore transient poll errors
     }
-  }, [uid, onPhotosReady]);
+  }, [uid, onAgedPhotoReady]);
 
-  // On mount: check if photos already exist for this user
   useEffect(() => {
     void checkStatus();
   }, [checkStatus]);
@@ -96,8 +80,6 @@ export function PhotoUploadStep({
     const localUrl = URL.createObjectURL(file);
     setPreviewUrl(localUrl);
     setOverallStatus('uploading');
-    const ts = Date.now();
-    setUploadTs(ts);
     stopPolling();
 
     const form = new FormData();
@@ -126,7 +108,6 @@ export function PhotoUploadStep({
       setOverallStatus('error');
     }
 
-    // reset input so the same file can be re-selected
     if (fileRef.current) fileRef.current.value = '';
   };
 
@@ -140,20 +121,15 @@ export function PhotoUploadStep({
   const reset = () => {
     stopPolling();
     setOverallStatus('none');
-    setAgedStatus({});
+    setAgedStatus('pending');
     setPreviewUrl(null);
-    setUploadTs(0);
+    onAgedPhotoReady(null);
   };
-
-  const currentPhotoUrl =
-    overallStatus === 'done' && agedStatus[horizon] === 'done'
-      ? photoImageUrl(uid, horizon, uploadTs)
-      : null;
 
   return (
     <div className="text-left space-y-4">
       <p className="font-mono text-[11px] tracking-[0.25em] text-[color:var(--color-mint)] uppercase opacity-70">
-        Opcja C — zdjęcie (Imagen AI)
+        Zdjęcie — trochę starsza wersja Ciebie (Imagen AI)
       </p>
 
       {overallStatus === 'none' && (
@@ -184,11 +160,7 @@ export function PhotoUploadStep({
 
       {overallStatus === 'uploading' && previewUrl && (
         <div className="border border-[color:var(--color-mint)]/30 p-3 space-y-2">
-          <img
-            src={previewUrl}
-            alt="Podgląd"
-            className="max-h-40 w-full object-contain"
-          />
+          <img src={previewUrl} alt="Podgląd" className="max-h-40 w-full object-contain" />
           <p className="font-mono text-[11px] text-[color:var(--color-mint)] animate-pulse">
             {'> '}Wysyłanie...
           </p>
@@ -201,40 +173,36 @@ export function PhotoUploadStep({
             <img
               src={previewUrl}
               alt="Oryginał"
-              className="max-h-28 w-full object-contain border border-[color:var(--color-mint)]/20"
+              className="max-h-32 w-full object-contain border border-[color:var(--color-mint)]/20"
             />
           )}
           <p className="font-mono text-[11px] text-[color:var(--color-mint)] animate-pulse">
-            {'> '}Generowanie wersji przez Imagen… (~60 s)
+            {'> '}Generowanie starszej wersji przez Imagen… (~30 s)
           </p>
-          <div className="grid grid-cols-4 gap-2">
-            {HORIZONS.map((h) => (
-              <div key={h} className="space-y-1">
-                <p className="font-mono text-[10px] text-center text-[color:var(--muted-foreground)] tracking-[0.15em]">
-                  +{h} lat
-                </p>
-                <div
-                  className={cn(
-                    'aspect-square border flex items-center justify-center',
-                    agedStatus[h] === 'done'
-                      ? 'border-[color:var(--color-mint)]/50'
-                      : 'border-[color:var(--color-mint)]/20'
-                  )}
-                >
-                  {agedStatus[h] === 'done' ? (
-                    <img
-                      src={photoImageUrl(uid, h, uploadTs)}
-                      alt={`+${h} lat`}
-                      className="w-full h-full object-cover"
-                    />
-                  ) : (
-                    <span className="font-mono text-[9px] text-[color:var(--muted-foreground)] animate-pulse">
-                      {agedStatus[h] === 'error' ? 'błąd' : '...'}
-                    </span>
-                  )}
-                </div>
-              </div>
-            ))}
+          <div className="mx-auto w-40">
+            <p className="font-mono text-[10px] text-center text-[color:var(--muted-foreground)] tracking-[0.15em]">
+              Ty jutra
+            </p>
+            <div
+              className={cn(
+                'aspect-square border flex items-center justify-center mt-1',
+                agedStatus === 'done'
+                  ? 'border-[color:var(--color-mint)]/50'
+                  : 'border-[color:var(--color-mint)]/20'
+              )}
+            >
+              {agedStatus === 'done' ? (
+                <img
+                  src={photoImageUrl(uid, 'aged')}
+                  alt="Ty jutra"
+                  className="w-full h-full object-cover"
+                />
+              ) : (
+                <span className="font-mono text-[9px] text-[color:var(--muted-foreground)] animate-pulse">
+                  {agedStatus === 'error' ? 'błąd' : '...'}
+                </span>
+              )}
+            </div>
           </div>
         </div>
       )}
@@ -256,41 +224,21 @@ export function PhotoUploadStep({
 
       {overallStatus === 'done' && (
         <div className="space-y-3">
-          <div className="grid grid-cols-4 gap-2">
-            {HORIZONS.map((h) => (
-              <div key={h} className="space-y-1">
-                <p
-                  className={cn(
-                    'font-mono text-[10px] text-center tracking-[0.15em]',
-                    h === horizon
-                      ? 'text-[color:var(--color-coral)]'
-                      : 'text-[color:var(--muted-foreground)]'
-                  )}
-                >
-                  +{h} lat{h === horizon ? ' ◀' : ''}
-                </p>
-                <div
-                  className={cn(
-                    'aspect-square border',
-                    h === horizon
-                      ? 'border-[color:var(--color-coral)]/70'
-                      : 'border-[color:var(--color-mint)]/30'
-                  )}
-                >
-                  <img
-                    src={photoImageUrl(uid, h, uploadTs)}
-                    alt={`+${h} lat`}
-                    className="w-full h-full object-cover"
-                  />
-                </div>
-              </div>
-            ))}
-          </div>
-          {currentPhotoUrl && (
-            <p className="font-mono text-[10px] text-[color:var(--color-mint)] tracking-[0.15em]">
-              {'> '}Zdjęcie na wybrany horyzont (+{horizon} lat) aktywne
+          <div className="mx-auto w-48">
+            <p className="font-mono text-[10px] text-center tracking-[0.15em] text-[color:var(--color-coral)]">
+              Ty jutra
             </p>
-          )}
+            <div className="aspect-square border border-[color:var(--color-coral)]/70 mt-1">
+              <img
+                src={photoImageUrl(uid, 'aged')}
+                alt="Ty jutra"
+                className="w-full h-full object-cover"
+              />
+            </div>
+          </div>
+          <p className="font-mono text-[10px] text-[color:var(--color-mint)] tracking-[0.15em] text-center">
+            {'> '}Zdjęcie gotowe — pojawi się w rozmowie głosowej.
+          </p>
           <button
             type="button"
             onClick={reset}

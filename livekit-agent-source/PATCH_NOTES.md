@@ -5,18 +5,18 @@ Apply this `agent.py` to the `Dakota-1d3e` LiveKit worker repo and redeploy.
 ## What changed vs. original
 
 1. **Metadata parsing** (`_parse_participant`)
-   Reads `participant.metadata` JSON → `{uid, horizon, display_name}`. Falls back to `jutra_<uid>` pattern on `identity`. Horizon clamped to `{5, 10, 20, 30}`.
+   Reads `participant.metadata` JSON → `{uid, display_name, base_age}`. Falls back to `jutra_<uid>` pattern on `identity`. `base_age` clamped to `[10, 80]`. No fixed horizon — the agent now picks its age standpoint per reply on the backend.
 
 2. **Boot (`_boot_persona`)**
    Before starting the session we call MCP:
-   - `get_persona_snapshot(uid, horizon)`
+   - `get_persona_snapshot(uid)`
    - `get_chronicle_tool(uid, limit=20)`
    and inject the result into the Agent's system prompt via `_format_persona_block`.
 
 3. **New `JutraAgent`** (replaces `DefaultAgent`)
-   - `on_enter`: short Polish greeting using `display_name` + `horizon`.
+   - `on_enter`: short, natural Polish greeting using `display_name`.
    - `on_user_turn_completed`: sends the raw STT text to MCP
-     `chat_with_future_self_tool` and speaks the returned `response` **verbatim**
+     `chat_with_future_self_tool` (payload: `{uid, message, display_name, base_age, use_rag, fast}`) and speaks the returned `response` **verbatim**
      via `session.say()`. Raises `StopResponse()` so the LLM never runs.
 
 4. **System prompt (`BASE_INSTRUCTIONS`)**
@@ -59,4 +59,4 @@ Or add `mcp>=1.2.0` to your existing `requirements.txt` / `pyproject.toml`. See
 If you deploy via `lk agent deploy`, just push the new `agent.py` + updated
 requirements and bounce the worker. The frontend (`jutra-web`) is already
 emitting the correct `participantMetadata`, so the worker will pick up
-`uid`/`horizon`/`display_name` on the next session.
+`uid`/`display_name`/`base_age` on the next session.

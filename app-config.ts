@@ -28,10 +28,6 @@ export interface AppConfig {
   // agent dispatch configuration
   agentName?: string;
 
-  /** Future-self time horizons (years) — must match backend `list_horizons`. */
-  horizons: readonly number[];
-  /** Default horizon before user picks in pre-session UI. */
-  defaultHorizon: number;
   /** When true, show onboarding / ingest preflight before LiveKit voice. */
   backendPreSessionEnabled: boolean;
 
@@ -74,8 +70,6 @@ export const APP_CONFIG_DEFAULTS: AppConfig = {
   // agent dispatch configuration
   agentName: process.env.AGENT_NAME ?? undefined,
 
-  horizons: [5, 10, 20, 30],
-  defaultHorizon: 10,
   backendPreSessionEnabled: true,
 
   // LiveKit Cloud Sandbox configuration

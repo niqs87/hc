@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 
-import { jutraBackendBase } from '@/lib/jutra-backend';
+import { jutraBackendAuthHeaders, jutraBackendBase } from '@/lib/jutra-backend';
 
 export async function POST(req: Request) {
   const started = Date.now();
@@ -25,7 +25,7 @@ export async function POST(req: Request) {
 
     const res = await fetch(
       `${jutraBackendBase()}/users/${encodeURIComponent(uid)}/photo/upload`,
-      { method: 'POST', body: backendForm }
+      { method: 'POST', headers: jutraBackendAuthHeaders(), body: backendForm }
     );
     const data = await res.json().catch(() => ({}));
     console.info('[jutra/photo/upload] backend responded', {

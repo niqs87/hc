@@ -9,6 +9,7 @@ import {
   type AgentControlBarControls,
 } from '@/components/agents-ui/agent-control-bar';
 import { Shimmer } from '@/components/ai-elements/shimmer';
+import { Settings } from 'lucide-react';
 import { cn } from '@/lib/shadcn/utils';
 import { TileLayout } from './tile-view';
 
@@ -186,13 +187,13 @@ export interface AgentSessionView_01Props {
   /** Stroke width of the wave path when `audioVisualizerType` is `wave`. */
   audioVisualizerWaveLineWidth?: number;
   /**
-   * Imagen-generated aged photo of the user for the currently selected
-   * horizon. When provided, it is rendered inside the portal frame as the
-   * agent's "face" during the session.
+   * Imagen-generated "slightly older me" photo of the user. When provided, it
+   * is rendered inside the portal frame as the agent's "face" during the
+   * session.
    */
   futureSelfPhotoUrl?: string | null;
-  /** Selected horizon in years; shown as a caption under the photo. */
-  futureSelfHorizon?: number;
+  /** Opens first-run portal settings (name, age, photo) from the session chrome. */
+  onOpenPortalSettings?: () => void;
   /** Optional class name merged onto the outer `<section>` container. */
   className?: string;
 }
@@ -214,7 +215,7 @@ export function AgentSessionView_01({
   audioVisualizerRadialRadius,
   audioVisualizerWaveLineWidth,
   futureSelfPhotoUrl,
-  futureSelfHorizon,
+  onOpenPortalSettings,
   ref,
   className,
   ...props
@@ -228,15 +229,14 @@ export function AgentSessionView_01({
   useEffect(() => {
     if (futureSelfPhotoUrl) {
       // eslint-disable-next-line no-console
-      console.info(
-        '[jutra] session: future-self photo attached',
-        { horizon: futureSelfHorizon, url: futureSelfPhotoUrl }
-      );
+      console.info('[jutra] session: future-self photo attached', {
+        url: futureSelfPhotoUrl,
+      });
     } else {
       // eslint-disable-next-line no-console
-      console.info('[jutra] session: no future-self photo for this horizon');
+      console.info('[jutra] session: no future-self photo available');
     }
-  }, [futureSelfPhotoUrl, futureSelfHorizon]);
+  }, [futureSelfPhotoUrl]);
 
   const controls: AgentControlBarControls = {
     leave: true,
@@ -266,10 +266,21 @@ export function AgentSessionView_01({
       {...props}
     >
       <PixelStarfield />
+      {onOpenPortalSettings && (
+        <button
+          type="button"
+          onClick={onOpenPortalSettings}
+          className="absolute right-4 top-4 z-[100] flex h-11 w-11 items-center justify-center border-2 border-[color:var(--color-coral)] bg-[color:var(--color-midnight)]/80 text-[color:var(--color-coral)] shadow-[4px_4px_0_var(--color-dark-coral)] transition-colors hover:bg-[color:var(--color-soft-purple)]/50"
+          aria-label="Ustawienia portalu"
+          title="Ustawienia portalu"
+        >
+          <Settings className="size-5" strokeWidth={2} />
+        </button>
+      )}
       <Fade top className="absolute inset-x-4 top-0 z-10 h-40" />
       {/* transcript */}
 
-      <div className="absolute top-0 bottom-[135px] flex w-full flex-col md:bottom-[170px]">
+      <div className="absolute top-0 bottom-[180px] flex w-full flex-col md:bottom-[220px]">
         <AnimatePresence>
           {chatOpen && (
             <motion.div
@@ -298,7 +309,6 @@ export function AgentSessionView_01({
         audioVisualizerGridColumnCount={audioVisualizerGridColumnCount}
         audioVisualizerWaveLineWidth={audioVisualizerWaveLineWidth}
         futureSelfPhotoUrl={futureSelfPhotoUrl}
-        futureSelfHorizon={futureSelfHorizon}
       />
       {/* Bottom */}
       <motion.div
@@ -322,6 +332,7 @@ export function AgentSessionView_01({
           </AnimatePresence>
         )}
         <div className="relative mx-auto max-w-2xl pb-3 md:pb-12">
+          <p className="pb-2 text-center text-[10px] text-muted-foreground/60">jutra · symulacja AI</p>
           <Fade bottom className="absolute inset-x-0 top-0 h-8 -translate-y-full" />
           <AgentControlBar
             variant="livekit"

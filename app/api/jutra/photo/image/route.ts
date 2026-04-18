@@ -1,19 +1,21 @@
-import { jutraBackendBase } from '@/lib/jutra-backend';
+import { jutraBackendAuthHeaders, jutraBackendBase } from '@/lib/jutra-backend';
 
 export async function GET(req: Request) {
   try {
     const u = new URL(req.url);
     const uid = u.searchParams.get('uid');
-    const horizon = u.searchParams.get('horizon');
+    const kindRaw = (u.searchParams.get('kind') || '').toLowerCase();
     const original = u.searchParams.get('original');
 
     if (!uid) return new Response(null, { status: 400 });
 
-    const path = original
-      ? `/users/${encodeURIComponent(uid)}/photo/original/image`
-      : `/users/${encodeURIComponent(uid)}/photo/${horizon}/image`;
+    const kind = original === '1' ? 'original' : kindRaw === 'original' ? 'original' : 'aged';
 
-    const res = await fetch(`${jutraBackendBase()}${path}`, { cache: 'no-store' });
+    const path = `/users/${encodeURIComponent(uid)}/photo/${kind}/image`;
+
+    const res = await fetch(`${jutraBackendBase()}${path}`, {
+      headers: jutraBackendAuthHeaders(),
+    });
     if (!res.ok) return new Response(null, { status: res.status });
 
     const bytes = await res.arrayBuffer();

@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 
-import { jutraBackendBase } from '@/lib/jutra-backend';
+import { jutraBackendBase, jutraBackendJsonHeaders } from '@/lib/jutra-backend';
 
 export async function POST(req: Request) {
   try {
@@ -11,7 +11,7 @@ export async function POST(req: Request) {
     }
     const res = await fetch(`${base}/users/${encodeURIComponent(uid)}/ingest/text`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: jutraBackendJsonHeaders(),
       body: JSON.stringify(rest),
     });
     const data = await res.json().catch(() => ({}));

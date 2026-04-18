@@ -10,11 +10,12 @@ const TRAIT_LABELS: Record<string, string> = {
 
 export type PersonaSnapshot = {
   uid?: string;
-  horizon_years?: number;
-  target_age?: number;
-  erikson_stage?: string;
+  display_name?: string;
+  base_age?: number;
   ocean_t?: Record<string, number>;
   ocean_described?: string;
+  top_values?: string[];
+  riasec_top3?: string[];
 };
 
 function PixelBar({ label, value }: { label: string; value: number }) {
@@ -63,17 +64,10 @@ export function PersonaCard({
       <div className="mb-3 text-[11px] tracking-[0.35em] text-[color:var(--color-mint)] uppercase opacity-80">
         {'> SNAPSHOT · PRZYSZŁE JA'}
       </div>
-      <div className="mb-2 text-[10px] tracking-[0.2em] text-[color:var(--muted-foreground)] uppercase">
-        {snapshot.horizon_years != null && (
-          <>
-            HORYZONT +{snapshot.horizon_years} LAT · WIEK {snapshot.target_age ?? '?'} LAT
-          </>
-        )}
-      </div>
-      {snapshot.erikson_stage && (
-        <p className="mb-4 text-[12px] leading-relaxed text-[color:var(--foreground)]">
-          {snapshot.erikson_stage}
-        </p>
+      {snapshot.base_age != null && (
+        <div className="mb-2 text-[10px] tracking-[0.2em] text-[color:var(--muted-foreground)] uppercase">
+          WIEK TERAZ {snapshot.base_age} LAT · PERSPEKTYWA DOBIERANA NA ŻYWO
+        </div>
       )}
       <div className="flex flex-col gap-2">
         {(['O', 'C', 'E', 'A', 'N'] as const).map((k) => (

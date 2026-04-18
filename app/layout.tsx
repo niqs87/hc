@@ -41,18 +41,6 @@ export default async function RootLayout({ children }: RootLayoutProps) {
       </head>
       <body className="jutra-scanlines overflow-x-hidden">
         <ThemeProvider attribute="class" defaultTheme="dark" forcedTheme="dark">
-          <header className="fixed top-0 left-0 z-50 hidden w-full flex-row items-center justify-between px-8 py-6 md:flex">
-            <span
-              className="font-mono text-[28px] tracking-[0.18em] text-[color:var(--color-coral)] uppercase"
-              style={{ textShadow: '0 0 12px rgba(255, 142, 114, 0.45)' }}
-            >
-              [JUTRA]
-            </span>
-            <span className="font-mono text-xs tracking-[0.25em] text-[color:var(--color-mint)] uppercase opacity-70">
-              {'> POROZMAWIAJ Z PRZYSZŁYM SOBĄ'}
-            </span>
-          </header>
-
           {children}
         </ThemeProvider>
       </body>

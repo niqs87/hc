@@ -7,8 +7,9 @@ import type { TokenSourceFetchOptions } from 'livekit-client';
 import type { JutraPrefs } from '@/components/app/jutra-prefs-context';
 
 /**
- * Stable custom {@link TokenSource} that always sends the latest uid / horizon /
- * display name in `participant_metadata` when LiveKit requests a token.
+ * Stable custom {@link TokenSource} that always sends the latest uid / display
+ * name / base age in `participant_metadata` when LiveKit requests a token.
+ * The agent picks its own age standpoint per reply, so no horizon is sent.
  */
 export function useJutraTokenSource(prefs: JutraPrefs, agentName?: string) {
   const ref = useRef(prefs);
@@ -25,8 +26,9 @@ export function useJutraTokenSource(prefs: JutraPrefs, agentName?: string) {
         const room_config = agent ? { agents: [{ agent_name: agent }] } : undefined;
         const meta = JSON.stringify({
           uid: p.uid,
-          horizon: p.horizon,
           display_name: p.displayName,
+          base_age: p.baseAge,
+          gender: p.gender,
         });
 
         const res = await fetch('/api/token', {

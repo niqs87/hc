@@ -287,31 +287,19 @@ interface TileLayoutProps {
   audioVisualizerRadialBarCount?: number;
   audioVisualizerRadialRadius?: number;
   audioVisualizerBarCount?: number;
-  /** Aged photo rendered as the agent's "face" inside the portal frame. */
+  /** Aged "slightly older me" photo rendered as the agent's face. */
   futureSelfPhotoUrl?: string | null;
-  /** Horizon in years; used for the caption. */
-  futureSelfHorizon?: number;
 }
 
-function FutureSelfPortrait({
-  photoUrl,
-  horizon,
-  chatOpen,
-}: {
-  photoUrl: string;
-  horizon?: number;
-  chatOpen: boolean;
-}) {
+function FutureSelfPortrait({ photoUrl }: { photoUrl: string }) {
   useEffect(() => {
     // eslint-disable-next-line no-console
-    console.info('[jutra] tile: rendering future-self portrait', {
-      horizon,
-      chatOpen,
+    console.info('[jutra] tile: rendering future-self portrait (portal)', {
       photoUrl,
     });
-  }, [photoUrl, horizon, chatOpen]);
+  }, [photoUrl]);
 
-  const size = chatOpen ? 90 : 280;
+  const size = 280;
   return (
     <div
       className="pointer-events-none absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2"
@@ -325,12 +313,9 @@ function FutureSelfPortrait({
             '0 0 24px rgba(114,255,169,0.35), 0 0 60px rgba(255,142,114,0.18)',
         }}
       />
-      {/* next/image isn't used because the bytes come from our backend proxy
-          with a dynamic query string; a plain <img> keeps the auth cookies
-          and avoids Next optimizer round-trips. */}
       <img
         src={photoUrl}
-        alt={horizon ? `Ty za +${horizon} lat` : 'Przyszły Ty'}
+        alt="Ty jutra"
         className="relative z-0 h-full w-full object-cover"
         style={{
           filter:
@@ -345,19 +330,103 @@ function FutureSelfPortrait({
             'inset 0 0 0 1px rgba(114,255,169,0.55), inset 0 0 18px rgba(255,142,114,0.2)',
         }}
       />
-      {!chatOpen && horizon !== undefined && (
-        <span
-          className="absolute left-1/2 -translate-x-1/2 font-mono text-[10px] tracking-[0.3em] uppercase whitespace-nowrap"
+      <span
+        className="absolute left-1/2 -translate-x-1/2 font-mono text-[10px] tracking-[0.3em] uppercase whitespace-nowrap"
+        style={{
+          top: -22,
+          color: 'var(--color-mint)',
+          opacity: 0.8,
+          textShadow: '0 0 8px rgba(114,255,169,0.45)',
+        }}
+      >
+        {`> ty jutra`}
+      </span>
+    </div>
+  );
+}
+
+/**
+ * Compact "photo + visualizer" pair used when the chat is expanded.
+ * Renders the same visualizer type/config as the chat-closed hero tile,
+ * just scaled down to fit the 90px-tall bottom-row slot and placed next
+ * to the aged photo so the two don't overlap.
+ */
+function ChatOpenAgentPair({
+  photoUrl,
+  audioVisualizerType,
+  audioVisualizerColor,
+  audioVisualizerColorShift,
+  audioVisualizerWaveLineWidth,
+  audioVisualizerGridRowCount,
+  audioVisualizerGridColumnCount,
+  audioVisualizerRadialBarCount,
+  audioVisualizerRadialRadius,
+  audioVisualizerBarCount,
+}: {
+  photoUrl: string | null | undefined;
+  audioVisualizerType?: 'bar' | 'wave' | 'grid' | 'radial' | 'aura';
+  audioVisualizerColor?: `#${string}`;
+  audioVisualizerColorShift?: number;
+  audioVisualizerWaveLineWidth?: number;
+  audioVisualizerGridRowCount?: number;
+  audioVisualizerGridColumnCount?: number;
+  audioVisualizerRadialBarCount?: number;
+  audioVisualizerRadialRadius?: number;
+  audioVisualizerBarCount?: number;
+}) {
+  return (
+    <div className="flex h-[90px] items-center gap-3">
+      {photoUrl ? (
+        <div
+          className="relative h-[90px] w-[90px] overflow-hidden"
           style={{
-            top: -22,
-            color: 'var(--color-mint)',
-            opacity: 0.8,
-            textShadow: '0 0 8px rgba(114,255,169,0.45)',
+            boxShadow:
+              'inset 0 0 0 1px rgba(114,255,169,0.55), inset 0 0 14px rgba(255,142,114,0.2)',
           }}
         >
-          {`> +${horizon} lat — ty`}
-        </span>
-      )}
+          <img
+            src={photoUrl}
+            alt="Ty jutra"
+            className="h-full w-full object-cover"
+            style={{
+              filter:
+                'saturate(0.95) contrast(1.05) drop-shadow(0 0 10px rgba(114,255,169,0.2))',
+            }}
+          />
+        </div>
+      ) : null}
+      <div
+        className="relative flex h-[108px] w-[108px] items-center justify-center"
+        style={{ color: audioVisualizerColor, overflow: 'visible' }}
+      >
+        {/* Plain wrapper: framer-motion on AudioVisualizer ignores raw CSS transform strings */}
+        <div
+          className="absolute top-1/2 left-1/2"
+          style={{
+            transform: 'translate(-50%, -50%) scale(0.24)',
+            transformOrigin: 'center center',
+          }}
+        >
+          <AudioVisualizer
+            key="audio-visualizer-chat-open"
+            audioVisualizerType={audioVisualizerType}
+            audioVisualizerColor={audioVisualizerColor}
+            audioVisualizerColorShift={audioVisualizerColorShift}
+            audioVisualizerBarCount={audioVisualizerBarCount}
+            audioVisualizerRadialBarCount={audioVisualizerRadialBarCount}
+            audioVisualizerRadialRadius={audioVisualizerRadialRadius}
+            audioVisualizerGridRowCount={audioVisualizerGridRowCount}
+            audioVisualizerGridColumnCount={audioVisualizerGridColumnCount}
+            audioVisualizerWaveLineWidth={audioVisualizerWaveLineWidth}
+            isChatOpen={false}
+            style={{
+              color: audioVisualizerColor,
+              filter:
+                'drop-shadow(0 0 12px rgba(114,255,169,0.4)) drop-shadow(0 0 24px rgba(255,142,114,0.12))',
+            }}
+          />
+        </div>
+      </div>
     </div>
   );
 }
@@ -374,7 +443,6 @@ export function TileLayout({
   audioVisualizerGridColumnCount,
   audioVisualizerWaveLineWidth,
   futureSelfPhotoUrl,
-  futureSelfHorizon,
 }: TileLayoutProps) {
   const { videoTrack: agentVideoTrack } = useVoiceAssistant();
   const [screenShareTrack] = useTracks([Track.Source.ScreenShare]);
@@ -414,54 +482,65 @@ export function TileLayout({
                     ...ANIMATION_TRANSITION,
                     delay: animationDelay,
                   }}
-                  className={cn('relative aspect-square h-[90px]')}
-                >
-                  <PortalFrame visible={!chatOpen} />
-                  <AmbientParticles visible={!chatOpen} />
-                  {futureSelfPhotoUrl && (
-                    <FutureSelfPortrait
-                      photoUrl={futureSelfPhotoUrl}
-                      horizon={futureSelfHorizon}
-                      chatOpen={chatOpen}
-                    />
+                  className={cn(
+                    'relative',
+                    chatOpen ? 'h-[90px]' : 'aspect-square h-[90px]'
                   )}
-                  <AudioVisualizer
-                    key="audio-visualizer"
-                    initial={{ scale: 1 }}
-                    animate={{
-                      scale: chatOpen
-                        ? 0.2
-                        : futureSelfPhotoUrl
-                          ? 0.45
-                          : 1,
-                      y: !chatOpen && futureSelfPhotoUrl ? 170 : 0,
-                      opacity: !chatOpen && futureSelfPhotoUrl ? 0.75 : 1,
-                    }}
-                    transition={{
-                      ...ANIMATION_TRANSITION,
-                      delay: animationDelay,
-                    }}
-                    audioVisualizerType={audioVisualizerType}
-                    audioVisualizerColor={audioVisualizerColor}
-                    audioVisualizerColorShift={audioVisualizerColorShift}
-                    audioVisualizerBarCount={audioVisualizerBarCount}
-                    audioVisualizerRadialBarCount={audioVisualizerRadialBarCount}
-                    audioVisualizerRadialRadius={audioVisualizerRadialRadius}
-                    audioVisualizerGridRowCount={audioVisualizerGridRowCount}
-                    audioVisualizerGridColumnCount={audioVisualizerGridColumnCount}
-                    audioVisualizerWaveLineWidth={audioVisualizerWaveLineWidth}
-                    isChatOpen={chatOpen}
-                    className={cn(
-                      'absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2',
-                      'transition-[filter,opacity] duration-500'
-                    )}
-                    style={{
-                      color: audioVisualizerColor,
-                      filter: chatOpen
-                        ? 'drop-shadow(0 0 12px rgba(114,255,169,0.35))'
-                        : 'drop-shadow(0 0 32px rgba(114,255,169,0.45)) drop-shadow(0 0 80px rgba(255,142,114,0.12))',
-                    }}
-                  />
+                >
+                  {chatOpen ? (
+                    <ChatOpenAgentPair
+                      photoUrl={futureSelfPhotoUrl}
+                      audioVisualizerType={audioVisualizerType}
+                      audioVisualizerColor={audioVisualizerColor}
+                      audioVisualizerColorShift={audioVisualizerColorShift}
+                      audioVisualizerBarCount={audioVisualizerBarCount}
+                      audioVisualizerRadialBarCount={audioVisualizerRadialBarCount}
+                      audioVisualizerRadialRadius={audioVisualizerRadialRadius}
+                      audioVisualizerGridRowCount={audioVisualizerGridRowCount}
+                      audioVisualizerGridColumnCount={audioVisualizerGridColumnCount}
+                      audioVisualizerWaveLineWidth={audioVisualizerWaveLineWidth}
+                    />
+                  ) : (
+                    <>
+                      <PortalFrame visible />
+                      <AmbientParticles visible />
+                      {futureSelfPhotoUrl && (
+                        <FutureSelfPortrait photoUrl={futureSelfPhotoUrl} />
+                      )}
+                      <AudioVisualizer
+                        key="audio-visualizer"
+                        initial={{ scale: 1 }}
+                        animate={{
+                          scale: futureSelfPhotoUrl ? 0.45 : 1,
+                          y: futureSelfPhotoUrl ? 170 : 0,
+                          opacity: futureSelfPhotoUrl ? 0.75 : 1,
+                        }}
+                        transition={{
+                          ...ANIMATION_TRANSITION,
+                          delay: animationDelay,
+                        }}
+                        audioVisualizerType={audioVisualizerType}
+                        audioVisualizerColor={audioVisualizerColor}
+                        audioVisualizerColorShift={audioVisualizerColorShift}
+                        audioVisualizerBarCount={audioVisualizerBarCount}
+                        audioVisualizerRadialBarCount={audioVisualizerRadialBarCount}
+                        audioVisualizerRadialRadius={audioVisualizerRadialRadius}
+                        audioVisualizerGridRowCount={audioVisualizerGridRowCount}
+                        audioVisualizerGridColumnCount={audioVisualizerGridColumnCount}
+                        audioVisualizerWaveLineWidth={audioVisualizerWaveLineWidth}
+                        isChatOpen={false}
+                        className={cn(
+                          'absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2',
+                          'transition-[filter,opacity] duration-500'
+                        )}
+                        style={{
+                          color: audioVisualizerColor,
+                          filter:
+                            'drop-shadow(0 0 32px rgba(114,255,169,0.45)) drop-shadow(0 0 80px rgba(255,142,114,0.12))',
+                        }}
+                      />
+                    </>
+                  )}
                 </motion.div>
               )}
 

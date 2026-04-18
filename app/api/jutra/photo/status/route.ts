@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 
-import { jutraBackendBase } from '@/lib/jutra-backend';
+import { jutraBackendAuthHeaders, jutraBackendBase } from '@/lib/jutra-backend';
 
 export async function GET(req: Request) {
   try {
@@ -11,7 +11,7 @@ export async function GET(req: Request) {
     }
     const res = await fetch(
       `${jutraBackendBase()}/users/${encodeURIComponent(uid)}/photo/status`,
-      { cache: 'no-store' }
+      { cache: 'no-store', headers: jutraBackendAuthHeaders() }
     );
     const data = await res.json().catch(() => ({}));
     return NextResponse.json(data, { status: res.status });

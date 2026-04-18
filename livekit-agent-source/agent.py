@@ -89,7 +89,7 @@ async def _mcp_call(tool: str, args: dict) -> dict:
     return await asyncio.wait_for(_run(), timeout=MCP_CALL_TIMEOUT_S)
 
 
-# --- Participant metadata (uid / horizon / display_name) ---------------------
+# --- Participant metadata (uid / display_name / base_age) --------------------
 
 
 def _parse_participant(participant: rtc.Participant) -> dict:
@@ -108,23 +108,27 @@ def _parse_participant(participant: rtc.Participant) -> dict:
         m = re.match(r"^jutra_(.+)$", participant.identity or "")
         uid = m.group(1) if m else (participant.identity or "anon")
 
-    horizon_raw = meta.get("horizon", 20)
-    try:
-        horizon = int(horizon_raw)
-    except Exception:
-        horizon = 20
-    if horizon not in (5, 10, 20, 30):
-        horizon = 20
-
     display_name = (meta.get("display_name") or "").strip() or "Ty"
 
-    return {"uid": uid, "horizon": horizon, "display_name": display_name}
+    base_age_raw = meta.get("base_age", 15)
+    try:
+        base_age = int(base_age_raw)
+    except Exception:
+        base_age = 15
+    if not (10 <= base_age <= 80):
+        base_age = 15
+
+    return {
+        "uid": uid,
+        "display_name": display_name,
+        "base_age": base_age,
+    }
 
 
 # --- System prompt rendering --------------------------------------------------
 
 
-BASE_INSTRUCTIONS = """Jesteś głosowym kanałem dla aplikacji "jutra" — symulacji przyszłej wersji użytkownika w języku polskim.
+BASE_INSTRUCTIONS = """Jesteś głosowym kanałem dla aplikacji "jutra" — rozmowa z "przyszłym sobą" użytkownika po polsku.
 
 ROLA
 NIE generujesz odpowiedzi samodzielnie. Jesteś cienką warstwą: głos użytkownika (STT) przekazujesz do narzędzia `chat_with_future_self_tool` backendu jutra, a zwrócony tekst czytasz dosłownie przez TTS.
@@ -138,8 +142,8 @@ JĘZYK I TON
 
 PRZEPŁYW (ścisły)
 1. Otrzymujesz tekst STT od użytkownika.
-2. System wywołuje `chat_with_future_self_tool` z polami {{uid, horizon, message, display_name, use_rag: true}}.
-3. Zwrócone pole `response` czytasz DOSŁOWNIE w TTS. Nie skracasz, nie parafrazujesz, nie usuwasz prefiksu "[Rozmawiasz z symulacją jutra (AI)...]".
+2. System wywołuje `chat_with_future_self_tool` z polami {{uid, message, display_name, base_age, use_rag: true, fast: true}}.
+3. Zwrócone pole `response` czytasz DOSŁOWNIE w TTS. Nie skracasz, nie parafrazujesz.
 4. Jeśli odpowiedź oznacza kryzys, czytasz ją w całości i nie dopytujesz — czekasz, aż użytkownik znów się odezwie.
 
 ZAKAZY
@@ -154,7 +158,6 @@ Jeśli backend nie odpowie, powiedz: "Chwila, mam problem z połączeniem. Spró
 
 def _format_persona_block(state: dict, persona: dict, chronicle: dict) -> str:
     ocean = persona.get("ocean_described") or persona.get("ocean") or "(brak danych)"
-    erikson = persona.get("erikson_stage") or "(brak danych)"
     values = persona.get("top_values") or persona.get("values") or []
     if isinstance(values, list):
         values_str = ", ".join(str(v) for v in values[:5]) or "(brak)"
@@ -175,10 +178,9 @@ def _format_persona_block(state: dict, persona: dict, chronicle: dict) -> str:
 
     return (
         f"- uid: {state['uid']}\n"
-        f"- horizon: {state['horizon']} lat\n"
         f"- display_name: {state['display_name']}\n"
+        f"- base_age: {state.get('base_age', 15)}\n"
         f"- OCEAN: {ocean}\n"
-        f"- Erikson: {erikson}\n"
         f"- Top values: {values_str}\n"
         f"- Writing style: {style}\n"
         f"- Chronicle highlights:\n{bullets_str}"
@@ -189,17 +191,27 @@ def _format_persona_block(state: dict, persona: dict, chronicle: dict) -> str:
 
 
 class JutraAgent(Agent):
-    def __init__(self, state: dict, persona: dict, chronicle: dict) -> None:
+    def __init__(
+        self,
+        state: dict,
+        persona: dict,
+        chronicle: dict,
+        *,
+        cold_open_line: str = "",
+    ) -> None:
         self._state = state
         self._persona = persona
         self._chronicle = chronicle
+        self._cold_open_line = cold_open_line
         persona_block = _format_persona_block(state, persona, chronicle)
         super().__init__(instructions=BASE_INSTRUCTIONS.format(persona_block=persona_block))
 
     async def on_enter(self):
         name = self._state.get("display_name") or "Ty"
-        horizon = self._state["horizon"]
-        greeting = f"Cześć {name}. Tu ty za {horizon} lat. Mów, słucham."
+        if self._cold_open_line:
+            greeting = self._cold_open_line
+        else:
+            greeting = f"Cześć {name}. Dobrze Cię słyszeć. Od czego dziś zaczniemy?"
         try:
             handle = self.session.say(greeting, allow_interruptions=True)
             await handle
@@ -218,9 +230,9 @@ class JutraAgent(Agent):
                 "chat_with_future_self_tool",
                 {
                     "uid": self._state["uid"],
-                    "horizon": self._state["horizon"],
                     "message": user_text,
                     "display_name": self._state["display_name"],
+                    "base_age": self._state.get("base_age"),
                     "use_rag": True,
                     "fast": True,
                 },
@@ -263,13 +275,14 @@ def prewarm(proc: JobProcess):
 server.setup_fnc = prewarm
 
 
-async def _boot_persona(state: dict) -> tuple[dict, dict]:
+async def _boot_persona(state: dict) -> tuple[dict, dict, str]:
     persona: dict = {}
     chronicle: dict = {}
+    cold_open = ""
     try:
         persona = await _mcp_call(
             "get_persona_snapshot",
-            {"uid": state["uid"], "horizon": state["horizon"]},
+            {"uid": state["uid"]},
         ) or {}
     except Exception:
         logger.exception("get_persona_snapshot failed; continuing with empty persona")
@@ -280,7 +293,13 @@ async def _boot_persona(state: dict) -> tuple[dict, dict]:
         ) or {}
     except Exception:
         logger.exception("get_chronicle_tool failed; continuing with empty chronicle")
-    return persona, chronicle
+    try:
+        pr = await _mcp_call("get_voice_session_primer", {"uid": state["uid"]}) or {}
+        if isinstance(pr, dict):
+            cold_open = str(pr.get("line") or "").strip()
+    except Exception:
+        logger.exception("get_voice_session_primer failed; continuing without cold_open")
+    return persona, chronicle, cold_open
 
 
 @server.rtc_session(agent_name="Dakota-1d3e")
@@ -288,13 +307,13 @@ async def entrypoint(ctx: JobContext):
     participant = await ctx.wait_for_participant()
     state = _parse_participant(participant)
     logger.info(
-        "jutra session state: uid=%s horizon=%s display_name=%s",
+        "jutra session state: uid=%s display_name=%s base_age=%s",
         state["uid"],
-        state["horizon"],
         state["display_name"],
+        state.get("base_age"),
     )
 
-    persona, chronicle = await _boot_persona(state)
+    persona, chronicle, cold_open = await _boot_persona(state)
 
     session = AgentSession(
         stt=inference.STT(model="deepgram/nova-3", language="pl"),
@@ -309,17 +328,23 @@ async def entrypoint(ctx: JobContext):
         preemptive_generation=False,
     )
 
-    await session.start(
-        agent=JutraAgent(state, persona, chronicle),
-        room=ctx.room,
-        room_options=room_io.RoomOptions(
-            audio_input=room_io.AudioInputOptions(
-                noise_cancellation=lambda params: noise_cancellation.BVCTelephony()
-                if params.participant.kind == rtc.ParticipantKind.PARTICIPANT_KIND_SIP
-                else noise_cancellation.BVC(),
+    try:
+        await session.start(
+            agent=JutraAgent(state, persona, chronicle, cold_open_line=cold_open),
+            room=ctx.room,
+            room_options=room_io.RoomOptions(
+                audio_input=room_io.AudioInputOptions(
+                    noise_cancellation=lambda params: noise_cancellation.BVCTelephony()
+                    if params.participant.kind == rtc.ParticipantKind.PARTICIPANT_KIND_SIP
+                    else noise_cancellation.BVC(),
+                ),
             ),
-        ),
-    )
+        )
+    finally:
+        try:
+            await _mcp_call("close_voice_session", {"uid": state["uid"]})
+        except Exception:
+            logger.warning("close_voice_session failed uid=%s", state.get("uid"), exc_info=True)
 
 
 if __name__ == "__main__":

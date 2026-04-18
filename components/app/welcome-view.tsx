@@ -74,17 +74,31 @@ function PixelDivider() {
 
 interface WelcomeViewProps {
   startButtonText: string;
-  /** First step: open preflight (horizon / onboarding / ingest) before LiveKit. */
+  /** First step: open preflight (onboarding / ingest) before LiveKit. */
   onBeginPreflight: () => void;
+  /** Clear session and return to login (optional). */
+  onLogout?: () => void;
 }
 
 export const WelcomeView = ({
   startButtonText,
   onBeginPreflight,
+  onLogout,
   ref,
 }: React.ComponentProps<'div'> & WelcomeViewProps) => {
   return (
     <div ref={ref}>
+      {onLogout ? (
+        <div className="fixed right-4 top-4 z-50">
+          <button
+            type="button"
+            onClick={onLogout}
+            className="font-mono text-[11px] tracking-wider text-muted-foreground underline-offset-4 hover:text-[color:var(--color-mint)] hover:underline"
+          >
+            Wyloguj
+          </button>
+        </div>
+      ) : null}
       <section
         className="flex flex-col items-center justify-center px-6 text-center"
         style={{ animation: 'fadeInUp 0.8s ease-out both' }}

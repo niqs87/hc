@@ -6,6 +6,7 @@ import { WarningIcon } from '@phosphor-icons/react/dist/ssr';
 import type { AppConfig } from '@/app-config';
 import { AgentSessionProvider } from '@/components/agents-ui/agent-session-provider';
 import { StartAudioButton } from '@/components/agents-ui/start-audio-button';
+import { AuthScreen } from '@/components/app/auth-screen';
 import { ViewController } from '@/components/app/view-controller';
 import { JutraPrefsProvider, useJutraPrefs } from '@/components/app/jutra-prefs-context';
 import { Toaster } from '@/components/ui/sonner';
@@ -29,12 +30,15 @@ interface AppProps {
 
 function AppGate({ appConfig }: AppProps) {
   const prefs = useJutraPrefs();
-  if (!prefs.ready || !prefs.uid) {
+  if (!prefs.ready) {
     return (
       <main className="relative grid min-h-svh grid-cols-1 place-content-center py-24">
         <div className="text-center text-sm text-muted-foreground">Ładowanie jutra…</div>
       </main>
     );
+  }
+  if (!prefs.authToken || !prefs.uid) {
+    return <AuthScreen onSession={(s) => prefs.setAuthSession(s)} />;
   }
   return <AppSessionInner appConfig={appConfig} />;
 }
@@ -44,8 +48,8 @@ function AppSessionInner({ appConfig }: AppProps) {
   const jutraToken = useJutraTokenSource(
     {
       uid: prefs.uid,
-      horizon: prefs.horizon,
       displayName: prefs.displayName,
+      baseAge: prefs.baseAge,
     },
     appConfig.agentName
   );
@@ -64,6 +68,17 @@ function AppSessionInner({ appConfig }: AppProps) {
   return (
     <AgentSessionProvider session={session}>
       <AppSetup />
+      <header className="pointer-events-none fixed top-0 left-0 z-50 hidden w-full flex-row items-center justify-between px-8 py-6 md:flex">
+        <span
+          className="font-mono text-[28px] tracking-[0.18em] text-[color:var(--color-coral)] uppercase"
+          style={{ textShadow: '0 0 12px rgba(255, 142, 114, 0.45)' }}
+        >
+          [JUTRA]
+        </span>
+        <span className="font-mono text-xs tracking-[0.25em] text-[color:var(--color-mint)] uppercase opacity-70">
+          {'> POROZMAWIAJ Z PRZYSZŁYM SOBĄ'}
+        </span>
+      </header>
       <main className="relative grid min-h-svh grid-cols-1 place-content-center py-24">
         <ViewController appConfig={appConfig} />
       </main>
@@ -88,7 +103,7 @@ function AppSessionInner({ appConfig }: AppProps) {
 
 export function App({ appConfig }: AppProps) {
   return (
-    <JutraPrefsProvider defaultHorizon={appConfig.defaultHorizon}>
+    <JutraPrefsProvider>
       <AppGate appConfig={appConfig} />
     </JutraPrefsProvider>
   );

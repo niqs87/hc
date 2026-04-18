@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 
-import { jutraBackendBase } from '@/lib/jutra-backend';
+import { jutraBackendBase, jutraBackendJsonHeaders } from '@/lib/jutra-backend';
 
 export async function POST(req: Request) {
   try {
@@ -8,7 +8,7 @@ export async function POST(req: Request) {
     const body = await req.json();
     const res = await fetch(`${base}/admin/seed`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: jutraBackendJsonHeaders(),
       body: JSON.stringify(body),
     });
     const data = await res.json().catch(() => ({}));
