@@ -13,14 +13,14 @@ export async function GET(req: Request) {
       ? `/users/${encodeURIComponent(uid)}/photo/original/image`
       : `/users/${encodeURIComponent(uid)}/photo/${horizon}/image`;
 
-    const res = await fetch(`${jutraBackendBase()}${path}`);
+    const res = await fetch(`${jutraBackendBase()}${path}`, { cache: 'no-store' });
     if (!res.ok) return new Response(null, { status: res.status });
 
     const bytes = await res.arrayBuffer();
     return new Response(bytes, {
       headers: {
         'Content-Type': 'image/jpeg',
-        'Cache-Control': 'public, max-age=3600',
+        'Cache-Control': 'no-store',
       },
     });
   } catch {

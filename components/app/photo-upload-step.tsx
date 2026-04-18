@@ -8,8 +8,9 @@ type OverallStatus = 'none' | 'uploading' | 'processing' | 'done' | 'error';
 
 const HORIZONS = [5, 10, 20, 30] as const;
 
-function photoImageUrl(uid: string, horizon: number) {
-  return `/api/jutra/photo/image?uid=${encodeURIComponent(uid)}&horizon=${horizon}`;
+function photoImageUrl(uid: string, horizon: number, ts?: number) {
+  const base = `/api/jutra/photo/image?uid=${encodeURIComponent(uid)}&horizon=${horizon}`;
+  return ts ? `${base}&t=${ts}` : base;
 }
 function originalImageUrl(uid: string) {
   return `/api/jutra/photo/image?uid=${encodeURIComponent(uid)}&original=1`;
@@ -27,6 +28,7 @@ export function PhotoUploadStep({
   const [overallStatus, setOverallStatus] = useState<OverallStatus>('none');
   const [agedStatus, setAgedStatus] = useState<Record<number, AgedStatus>>({});
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [uploadTs, setUploadTs] = useState<number>(0);
   const fileRef = useRef<HTMLInputElement>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -62,7 +64,7 @@ export function PhotoUploadStep({
         stopPolling();
         const urls: Record<number, string> = {};
         for (const h of HORIZONS) {
-          if (newAged[h] === 'done') urls[h] = photoImageUrl(uid, h);
+          if (newAged[h] === 'done') urls[h] = photoImageUrl(uid, h, uploadTs);
         }
         // eslint-disable-next-line no-console
         console.info('[jutra/photo] all horizons ready', { uid, horizons: Object.keys(urls) });
@@ -94,6 +96,8 @@ export function PhotoUploadStep({
     const localUrl = URL.createObjectURL(file);
     setPreviewUrl(localUrl);
     setOverallStatus('uploading');
+    const ts = Date.now();
+    setUploadTs(ts);
     stopPolling();
 
     const form = new FormData();
@@ -138,11 +142,12 @@ export function PhotoUploadStep({
     setOverallStatus('none');
     setAgedStatus({});
     setPreviewUrl(null);
+    setUploadTs(0);
   };
 
   const currentPhotoUrl =
     overallStatus === 'done' && agedStatus[horizon] === 'done'
-      ? photoImageUrl(uid, horizon)
+      ? photoImageUrl(uid, horizon, uploadTs)
       : null;
 
   return (
@@ -218,7 +223,7 @@ export function PhotoUploadStep({
                 >
                   {agedStatus[h] === 'done' ? (
                     <img
-                      src={photoImageUrl(uid, h)}
+                      src={photoImageUrl(uid, h, uploadTs)}
                       alt={`+${h} lat`}
                       className="w-full h-full object-cover"
                     />
@@ -273,7 +278,7 @@ export function PhotoUploadStep({
                   )}
                 >
                   <img
-                    src={photoImageUrl(uid, h)}
+                    src={photoImageUrl(uid, h, uploadTs)}
                     alt={`+${h} lat`}
                     className="w-full h-full object-cover"
                   />
