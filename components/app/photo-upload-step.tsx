@@ -64,8 +64,12 @@ export function PhotoUploadStep({
         for (const h of HORIZONS) {
           if (newAged[h] === 'done') urls[h] = photoImageUrl(uid, h);
         }
+        // eslint-disable-next-line no-console
+        console.info('[jutra/photo] all horizons ready', { uid, horizons: Object.keys(urls) });
         onPhotosReady(urls);
       } else if (data.overall_status === 'error') {
+        // eslint-disable-next-line no-console
+        console.error('[jutra/photo] aging pipeline reported error', { uid });
         setOverallStatus('error');
         stopPolling();
       } else if (data.overall_status === 'processing') {
@@ -97,14 +101,24 @@ export function PhotoUploadStep({
     form.append('file', file);
 
     try {
+      // eslint-disable-next-line no-console
+      console.info('[jutra/photo] uploading', {
+        uid,
+        size: file.size,
+        type: file.type,
+      });
       const res = await fetch('/api/jutra/photo/upload', { method: 'POST', body: form });
       if (!res.ok) {
+        // eslint-disable-next-line no-console
+        console.error('[jutra/photo] upload failed', { uid, status: res.status });
         setOverallStatus('error');
         return;
       }
       setOverallStatus('processing');
       pollRef.current = setInterval(() => void checkStatus(), 3500);
-    } catch {
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.error('[jutra/photo] upload threw', err);
       setOverallStatus('error');
     }
 

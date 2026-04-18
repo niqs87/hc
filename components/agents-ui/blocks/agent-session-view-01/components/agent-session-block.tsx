@@ -185,6 +185,14 @@ export interface AgentSessionView_01Props {
   audioVisualizerRadialRadius?: number;
   /** Stroke width of the wave path when `audioVisualizerType` is `wave`. */
   audioVisualizerWaveLineWidth?: number;
+  /**
+   * Imagen-generated aged photo of the user for the currently selected
+   * horizon. When provided, it is rendered inside the portal frame as the
+   * agent's "face" during the session.
+   */
+  futureSelfPhotoUrl?: string | null;
+  /** Selected horizon in years; shown as a caption under the photo. */
+  futureSelfHorizon?: number;
   /** Optional class name merged onto the outer `<section>` container. */
   className?: string;
 }
@@ -205,6 +213,8 @@ export function AgentSessionView_01({
   audioVisualizerRadialBarCount,
   audioVisualizerRadialRadius,
   audioVisualizerWaveLineWidth,
+  futureSelfPhotoUrl,
+  futureSelfHorizon,
   ref,
   className,
   ...props
@@ -214,6 +224,19 @@ export function AgentSessionView_01({
   const [chatOpen, setChatOpen] = useState(false);
   const scrollAreaRef = useRef<HTMLDivElement>(null);
   const { state: agentState } = useAgent();
+
+  useEffect(() => {
+    if (futureSelfPhotoUrl) {
+      // eslint-disable-next-line no-console
+      console.info(
+        '[jutra] session: future-self photo attached',
+        { horizon: futureSelfHorizon, url: futureSelfPhotoUrl }
+      );
+    } else {
+      // eslint-disable-next-line no-console
+      console.info('[jutra] session: no future-self photo for this horizon');
+    }
+  }, [futureSelfPhotoUrl, futureSelfHorizon]);
 
   const controls: AgentControlBarControls = {
     leave: true,
@@ -274,6 +297,8 @@ export function AgentSessionView_01({
         audioVisualizerGridRowCount={audioVisualizerGridRowCount}
         audioVisualizerGridColumnCount={audioVisualizerGridColumnCount}
         audioVisualizerWaveLineWidth={audioVisualizerWaveLineWidth}
+        futureSelfPhotoUrl={futureSelfPhotoUrl}
+        futureSelfHorizon={futureSelfHorizon}
       />
       {/* Bottom */}
       <motion.div

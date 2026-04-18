@@ -38,9 +38,10 @@ interface ViewControllerProps {
 export function ViewController({ appConfig }: ViewControllerProps) {
   const { isConnected, start } = useSessionContext();
   const { resolvedTheme } = useTheme();
-  const { horizon } = useJutraPrefs();
+  const { horizon, photoUrls } = useJutraPrefs();
   const [stage, setStage] = useState<'welcome' | 'presession'>('welcome');
 
+  const futureSelfPhotoUrl = photoUrls[horizon] ?? null;
   const preConnectMessage = `> Portal otwarty (+${horizon} lat). Powiedz, co chcesz dziś usłyszeć od siebie…`;
 
   return (
@@ -74,6 +75,8 @@ export function ViewController({ appConfig }: ViewControllerProps) {
           key="session-view"
           {...VIEW_MOTION_PROPS}
           preConnectMessage={preConnectMessage}
+          futureSelfPhotoUrl={futureSelfPhotoUrl}
+          futureSelfHorizon={horizon}
           supportsChatInput={appConfig.supportsChatInput}
           supportsVideoInput={appConfig.supportsVideoInput}
           supportsScreenShare={appConfig.supportsScreenShare}

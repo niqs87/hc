@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useEffect, useMemo } from 'react';
 import { Track } from 'livekit-client';
 import { AnimatePresence, type MotionProps, motion } from 'motion/react';
 import {
@@ -287,6 +287,79 @@ interface TileLayoutProps {
   audioVisualizerRadialBarCount?: number;
   audioVisualizerRadialRadius?: number;
   audioVisualizerBarCount?: number;
+  /** Aged photo rendered as the agent's "face" inside the portal frame. */
+  futureSelfPhotoUrl?: string | null;
+  /** Horizon in years; used for the caption. */
+  futureSelfHorizon?: number;
+}
+
+function FutureSelfPortrait({
+  photoUrl,
+  horizon,
+  chatOpen,
+}: {
+  photoUrl: string;
+  horizon?: number;
+  chatOpen: boolean;
+}) {
+  useEffect(() => {
+    // eslint-disable-next-line no-console
+    console.info('[jutra] tile: rendering future-self portrait', {
+      horizon,
+      chatOpen,
+      photoUrl,
+    });
+  }, [photoUrl, horizon, chatOpen]);
+
+  const size = chatOpen ? 90 : 280;
+  return (
+    <div
+      className="pointer-events-none absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2"
+      style={{ width: size, height: size }}
+    >
+      <div
+        aria-hidden
+        className="absolute inset-0"
+        style={{
+          boxShadow:
+            '0 0 24px rgba(114,255,169,0.35), 0 0 60px rgba(255,142,114,0.18)',
+        }}
+      />
+      {/* next/image isn't used because the bytes come from our backend proxy
+          with a dynamic query string; a plain <img> keeps the auth cookies
+          and avoids Next optimizer round-trips. */}
+      <img
+        src={photoUrl}
+        alt={horizon ? `Ty za +${horizon} lat` : 'Przyszły Ty'}
+        className="relative z-0 h-full w-full object-cover"
+        style={{
+          filter:
+            'saturate(0.95) contrast(1.05) drop-shadow(0 0 18px rgba(114,255,169,0.25))',
+        }}
+      />
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-0"
+        style={{
+          boxShadow:
+            'inset 0 0 0 1px rgba(114,255,169,0.55), inset 0 0 18px rgba(255,142,114,0.2)',
+        }}
+      />
+      {!chatOpen && horizon !== undefined && (
+        <span
+          className="absolute left-1/2 -translate-x-1/2 font-mono text-[10px] tracking-[0.3em] uppercase whitespace-nowrap"
+          style={{
+            top: -22,
+            color: 'var(--color-mint)',
+            opacity: 0.8,
+            textShadow: '0 0 8px rgba(114,255,169,0.45)',
+          }}
+        >
+          {`> +${horizon} lat — ty`}
+        </span>
+      )}
+    </div>
+  );
 }
 
 export function TileLayout({
@@ -300,6 +373,8 @@ export function TileLayout({
   audioVisualizerGridRowCount,
   audioVisualizerGridColumnCount,
   audioVisualizerWaveLineWidth,
+  futureSelfPhotoUrl,
+  futureSelfHorizon,
 }: TileLayoutProps) {
   const { videoTrack: agentVideoTrack } = useVoiceAssistant();
   const [screenShareTrack] = useTracks([Track.Source.ScreenShare]);
@@ -343,10 +418,25 @@ export function TileLayout({
                 >
                   <PortalFrame visible={!chatOpen} />
                   <AmbientParticles visible={!chatOpen} />
+                  {futureSelfPhotoUrl && (
+                    <FutureSelfPortrait
+                      photoUrl={futureSelfPhotoUrl}
+                      horizon={futureSelfHorizon}
+                      chatOpen={chatOpen}
+                    />
+                  )}
                   <AudioVisualizer
                     key="audio-visualizer"
                     initial={{ scale: 1 }}
-                    animate={{ scale: chatOpen ? 0.2 : 1 }}
+                    animate={{
+                      scale: chatOpen
+                        ? 0.2
+                        : futureSelfPhotoUrl
+                          ? 0.45
+                          : 1,
+                      y: !chatOpen && futureSelfPhotoUrl ? 170 : 0,
+                      opacity: !chatOpen && futureSelfPhotoUrl ? 0.75 : 1,
+                    }}
                     transition={{
                       ...ANIMATION_TRANSITION,
                       delay: animationDelay,

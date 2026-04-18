@@ -3,8 +3,10 @@ import json
 import logging
 import os
 import re
+from collections.abc import AsyncIterator
 from typing import Any
 
+import httpx
 from dotenv import load_dotenv
 from livekit import rtc
 from livekit.agents import (
@@ -16,11 +18,11 @@ from livekit.agents import (
     StopResponse,
     TurnHandlingOptions,
     cli,
+    inference,
     llm,
     room_io,
 )
 from livekit.plugins import (
-    google as lkgoogle,
     noise_cancellation,
     silero,
 )
@@ -33,52 +35,67 @@ logger = logging.getLogger("agent-Dakota-1d3e")
 load_dotenv(".env.local")
 
 
-# --- Google Cloud ADC bootstrap ----------------------------------------------
-# We run on LiveKit Cloud (not GCP), so Application Default Credentials aren't
-# present. The agent receives a service account JSON as a LiveKit secret
-# (`GOOGLE_APPLICATION_CREDENTIALS_JSON`); we write it to disk at startup and
-# point `GOOGLE_APPLICATION_CREDENTIALS` at it so all three google plugins
-# (STT, TTS, Vertex LLM) pick it up via ADC.
-def _bootstrap_google_adc() -> None:
-    raw = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS_JSON", "").strip()
-    if not raw:
-        return
-    path = "/tmp/gcp-sa.json"
-    try:
-        # Validate it parses as JSON before writing.
-        json.loads(raw)
-        with open(path, "w", encoding="utf-8") as fh:
-            fh.write(raw)
-        os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = path
-        # Default VertexAI on, point at the jutra project & region unless
-        # the operator has already overridden these via secrets.
-        os.environ.setdefault("GOOGLE_GENAI_USE_VERTEXAI", "1")
-        os.environ.setdefault("GOOGLE_CLOUD_PROJECT", "jutra-493710")
-        os.environ.setdefault("GOOGLE_CLOUD_LOCATION", "europe-west4")
-        logger.info(
-            "google ADC: wrote SA key to %s, project=%s location=%s",
-            path,
-            os.environ.get("GOOGLE_CLOUD_PROJECT"),
-            os.environ.get("GOOGLE_CLOUD_LOCATION"),
-        )
-    except Exception:
-        logger.exception("failed to bootstrap google ADC from GOOGLE_APPLICATION_CREDENTIALS_JSON")
-
-
-_bootstrap_google_adc()
-
 # --- Backend wiring (jutra MCP over Streamable HTTP) --------------------------
 
 JUTRA_BACKEND_URL = os.environ.get("JUTRA_BACKEND_URL", "").strip().rstrip("/")
 JUTRA_MCP_URL = f"{JUTRA_BACKEND_URL}/mcp/" if JUTRA_BACKEND_URL else ""
+JUTRA_CHAT_STREAM_URL = (
+    f"{JUTRA_BACKEND_URL}/voice/chat-stream" if JUTRA_BACKEND_URL else ""
+)
 MCP_BEARER = os.environ.get("MCP_BEARER_TOKEN", "").strip()
-MCP_CALL_TIMEOUT_S = float(os.environ.get("JUTRA_MCP_TIMEOUT", "20"))
+MCP_CALL_TIMEOUT_S = float(os.environ.get("JUTRA_MCP_TIMEOUT", "60"))
+
+# Pattern C: stream backend tokens over SSE so TTS can start synthesising
+# ~2s after end-of-speech instead of waiting for the full backend reply.
+# Set JUTRA_STREAMING=0 to fall back to the blocking MCP path (emergency
+# rollback; no redeploy needed).
+JUTRA_STREAMING_ENABLED = os.environ.get("JUTRA_STREAMING", "1").strip() not in {
+    "",
+    "0",
+    "false",
+    "False",
+}
+# Time budget for receiving the first SSE frame before we give up and fall
+# back to the blocking MCP path. Network hiccups shouldn't kill the whole
+# turn; 15s is generous enough to cover cold-start on Cloud Run.
+STREAM_FIRST_FRAME_TIMEOUT_S = float(
+    os.environ.get("JUTRA_STREAM_FIRST_FRAME_TIMEOUT", "15")
+)
+
+# LiveKit Inference model ids. All three providers (Deepgram STT, Google LLM,
+# ElevenLabs TTS) are billed through LiveKit Cloud gateway credits — we pay
+# LiveKit directly, which is cheaper ops-wise than wiring three separate
+# provider accounts + ADC + region pinning for each.
+#
+# Fallbacks (set via env if a preview slug is deprecated or quota hits):
+#   AGENT_LLM_MODEL=google/gemini-2.5-flash   (stable GA)
+#   AGENT_LLM_MODEL=openai/gpt-5.4            (different provider entirely)
+AGENT_LLM_MODEL = os.environ.get(
+    "AGENT_LLM_MODEL", "google/gemini-3-flash-preview"
+).strip()
+AGENT_STT_MODEL = os.environ.get("AGENT_STT_MODEL", "deepgram/nova-3").strip()
+AGENT_STT_LANGUAGE = os.environ.get("AGENT_STT_LANGUAGE", "pl").strip()
+AGENT_TTS_MODEL = os.environ.get(
+    "AGENT_TTS_MODEL", "elevenlabs/eleven_multilingual_v2"
+).strip()
+AGENT_TTS_VOICE = os.environ.get("AGENT_TTS_VOICE", "bIHbv24MWmeRgasZH58o").strip()
+AGENT_TTS_LANGUAGE = os.environ.get("AGENT_TTS_LANGUAGE", "pl").strip()
 
 logger.info(
-    "jutra backend config: JUTRA_BACKEND_URL=%r JUTRA_MCP_URL=%r has_bearer=%s",
+    "jutra backend config: JUTRA_BACKEND_URL=%r JUTRA_MCP_URL=%r stream_url=%r "
+    "streaming=%s has_bearer=%s llm=%s stt=%s/%s tts=%s/%s/%s mcp_timeout=%ss",
     JUTRA_BACKEND_URL,
     JUTRA_MCP_URL,
+    JUTRA_CHAT_STREAM_URL,
+    JUTRA_STREAMING_ENABLED,
     bool(MCP_BEARER),
+    AGENT_LLM_MODEL,
+    AGENT_STT_MODEL,
+    AGENT_STT_LANGUAGE,
+    AGENT_TTS_MODEL,
+    AGENT_TTS_VOICE,
+    AGENT_TTS_LANGUAGE,
+    MCP_CALL_TIMEOUT_S,
 )
 
 
@@ -125,7 +142,6 @@ async def _mcp_call(tool: str, args: dict) -> dict:
                 structured = getattr(out, "structuredContent", None)
                 if isinstance(structured, dict):
                     return structured
-                # Fallback: try to parse first text content block as JSON.
                 for block in getattr(out, "content", []) or []:
                     text = getattr(block, "text", None)
                     if text:
@@ -138,6 +154,67 @@ async def _mcp_call(tool: str, args: dict) -> dict:
                 return {}
 
     return await asyncio.wait_for(_run(), timeout=MCP_CALL_TIMEOUT_S)
+
+
+# --- Streaming chat (SSE; Pattern C) -----------------------------------------
+
+
+async def _stream_chat_events(
+    payload: dict,
+) -> AsyncIterator[tuple[str, dict]]:
+    """Open an SSE stream to /voice/chat-stream and yield (event, data) pairs.
+
+    Raises on HTTP/transport errors BEFORE the first frame is yielded so the
+    caller can fall back to the blocking MCP path. Errors after the first
+    frame are surfaced as an ("error", {...}) event.
+    """
+    if not JUTRA_CHAT_STREAM_URL:
+        raise RuntimeError("JUTRA_BACKEND_URL is not set")
+
+    # Read timeout covers the gap between tokens (Gemini streams slowly at
+    # start of a reply). Connect timeout is short to fail fast on bad DNS.
+    timeout = httpx.Timeout(
+        connect=5.0,
+        read=MCP_CALL_TIMEOUT_S,
+        write=10.0,
+        pool=5.0,
+    )
+    async with httpx.AsyncClient(timeout=timeout) as client:
+        async with client.stream(
+            "POST",
+            JUTRA_CHAT_STREAM_URL,
+            json=payload,
+            headers={
+                **_mcp_headers(),
+                "Accept": "text/event-stream",
+            },
+        ) as resp:
+            if resp.status_code >= 400:
+                body = await resp.aread()
+                raise RuntimeError(
+                    f"chat-stream HTTP {resp.status_code}: {body[:200]!r}"
+                )
+
+            current_event = "message"
+            async for raw_line in resp.aiter_lines():
+                line = raw_line.rstrip("\r")
+                if not line:
+                    current_event = "message"
+                    continue
+                if line.startswith(":"):
+                    # SSE comment / keep-alive.
+                    continue
+                if line.startswith("event:"):
+                    current_event = line.split(":", 1)[1].strip() or "message"
+                    continue
+                if line.startswith("data:"):
+                    data_raw = line.split(":", 1)[1].strip()
+                    try:
+                        data = json.loads(data_raw) if data_raw else {}
+                    except json.JSONDecodeError:
+                        logger.warning("chat-stream: bad JSON in data line: %r", data_raw)
+                        continue
+                    yield current_event, data
 
 
 # --- Participant metadata (uid / horizon / display_name) ---------------------
@@ -269,17 +346,135 @@ class JutraAgent(Agent):
         if not user_text:
             raise StopResponse()
 
-        try:
-            out = await _mcp_call(
-                "chat_with_future_self_tool",
-                {
-                    "uid": self._state["uid"],
-                    "horizon": self._state["horizon"],
-                    "message": user_text,
-                    "display_name": self._state["display_name"],
-                    "use_rag": True,
-                },
+        payload = {
+            "uid": self._state["uid"],
+            "horizon": self._state["horizon"],
+            "message": user_text,
+            "display_name": self._state["display_name"],
+            "use_rag": True,
+        }
+
+        if JUTRA_STREAMING_ENABLED:
+            spoke = await self._try_stream_and_speak(payload)
+            if spoke:
+                raise StopResponse()
+            logger.warning(
+                "streaming chat path failed uid=%s; falling back to blocking MCP",
+                self._state.get("uid"),
             )
+
+        await self._blocking_chat_and_speak({**payload, "fast": True})
+        raise StopResponse()
+
+    async def _try_stream_and_speak(self, payload: dict) -> bool:
+        """Stream backend tokens via SSE and feed them into TTS in real time.
+
+        Returns True if we successfully spoke (even if stream ended early with
+        already-buffered text); False if we should fall back to blocking MCP.
+        """
+        delta_q: asyncio.Queue[str | None] = asyncio.Queue()
+        first_frame = asyncio.Event()
+        meta_holder: dict = {}
+        stream_error: dict = {}
+
+        async def consume() -> None:
+            try:
+                async for event, data in _stream_chat_events(payload):
+                    if not first_frame.is_set():
+                        first_frame.set()
+                    if event == "meta":
+                        meta_holder.update(data)
+                    elif event == "delta":
+                        text = data.get("text") or ""
+                        if text:
+                            await delta_q.put(text)
+                    elif event == "done":
+                        await delta_q.put(None)
+                        return
+                    elif event == "error":
+                        stream_error["msg"] = data.get("error") or "unknown"
+                        logger.error(
+                            "chat-stream reported error uid=%s: %s",
+                            self._state.get("uid"),
+                            stream_error["msg"],
+                        )
+                        await delta_q.put(None)
+                        return
+            except Exception as exc:
+                stream_error["msg"] = f"{type(exc).__name__}: {exc}"
+                logger.error(
+                    "chat-stream transport failed uid=%s err=%s",
+                    self._state.get("uid"),
+                    stream_error["msg"],
+                )
+            finally:
+                if not first_frame.is_set():
+                    first_frame.set()
+                await delta_q.put(None)
+
+        consumer = asyncio.create_task(consume())
+
+        try:
+            await asyncio.wait_for(
+                first_frame.wait(),
+                timeout=STREAM_FIRST_FRAME_TIMEOUT_S,
+            )
+        except asyncio.TimeoutError:
+            logger.warning(
+                "chat-stream first-frame timeout uid=%s; cancelling",
+                self._state.get("uid"),
+            )
+            consumer.cancel()
+            try:
+                await consumer
+            except (asyncio.CancelledError, Exception):
+                pass
+            return False
+
+        # If the very first thing we got was an error (no meta, no delta),
+        # fall back to the blocking MCP path.
+        if stream_error and not meta_holder and delta_q.empty():
+            await consumer
+            return False
+
+        # The disclosure prefix is stripped only from the first chunk; for
+        # the streaming path the backend doesn't prepend it at all, but we
+        # strip defensively in case that ever changes.
+        async def text_stream() -> AsyncIterator[str]:
+            first = True
+            while True:
+                chunk = await delta_q.get()
+                if chunk is None:
+                    return
+                if first:
+                    chunk = _strip_disclosure(chunk)
+                    first = False
+                if chunk:
+                    yield chunk
+
+        try:
+            await self.session.say(text_stream(), allow_interruptions=True)
+        except Exception:
+            logger.exception("session.say (stream) failed")
+            consumer.cancel()
+            try:
+                await consumer
+            except (asyncio.CancelledError, Exception):
+                pass
+            return False
+
+        # Drain the consumer so memory extraction on the backend gets to run
+        # (the server keeps the SSE open until extract_and_save completes).
+        try:
+            await consumer
+        except Exception:
+            logger.exception("chat-stream consumer drain failed")
+        return True
+
+    async def _blocking_chat_and_speak(self, payload: dict) -> None:
+        """Fallback: classic blocking MCP call + single `session.say`."""
+        try:
+            out = await _mcp_call("chat_with_future_self_tool", payload)
         except Exception as exc:
             logger.error(
                 "chat_with_future_self_tool failed uid=%s horizon=%s mcp_url=%r err=%s: %s",
@@ -296,7 +491,7 @@ class JutraAgent(Agent):
                 )
             except Exception:
                 pass
-            raise StopResponse()
+            return
 
         response_text = ""
         if isinstance(out, dict):
@@ -309,8 +504,6 @@ class JutraAgent(Agent):
             await self.session.say(response_text, allow_interruptions=True)
         except Exception:
             logger.exception("session.say failed")
-
-        raise StopResponse()
 
 
 # --- Server / entrypoint ------------------------------------------------------
@@ -372,27 +565,17 @@ async def entrypoint(ctx: JobContext):
 
     persona, chronicle = await _boot_persona(state)
 
-    # Direct Google Cloud providers (STT/TTS/Vertex Gemini). We bypass the
-    # LiveKit inference gateway entirely because the project's Gateway
-    # Credits are exhausted and not the intended billing path for us.
     session = AgentSession(
-        stt=lkgoogle.STT(
-            languages=["pl-PL"],
-            model="latest_long",
-        ),
-        llm=lkgoogle.LLM(
-            model="gemini-2.5-flash",
-            vertexai=True,
-            project=os.environ.get("GOOGLE_CLOUD_PROJECT", "jutra-493710"),
-            location=os.environ.get("GOOGLE_CLOUD_LOCATION", "europe-west4"),
-        ),
-        tts=lkgoogle.TTS(
-            language="pl-PL",
-            voice_name=os.environ.get("GOOGLE_TTS_VOICE", "pl-PL-Wavenet-E"),
-            gender="female",
+        stt=inference.STT(model=AGENT_STT_MODEL, language=AGENT_STT_LANGUAGE),
+        llm=inference.LLM(model=AGENT_LLM_MODEL),
+        tts=inference.TTS(
+            model=AGENT_TTS_MODEL,
+            voice=AGENT_TTS_VOICE,
+            language=AGENT_TTS_LANGUAGE,
         ),
         turn_handling=TurnHandlingOptions(turn_detection=MultilingualModel()),
         vad=ctx.proc.userdata["vad"],
+        preemptive_generation=False,
     )
 
     await session.start(

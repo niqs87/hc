@@ -39,6 +39,13 @@ JUTRA_MCP_URL = f"{JUTRA_BACKEND_URL}/mcp/" if JUTRA_BACKEND_URL else ""
 MCP_BEARER = os.environ.get("MCP_BEARER_TOKEN", "").strip()
 MCP_CALL_TIMEOUT_S = float(os.environ.get("JUTRA_MCP_TIMEOUT", "20"))
 
+# LiveKit Inference LLM model id. Default: Gemini 3 Flash preview.
+# Override with AGENT_LLM_MODEL (e.g. "google/gemini-2.5-flash" as a stable
+# fallback if the preview slug gets deprecated, or "openai/gpt-5.4").
+AGENT_LLM_MODEL = os.environ.get(
+    "AGENT_LLM_MODEL", "google/gemini-3-flash-preview"
+).strip()
+
 
 def _mcp_headers() -> dict:
     return {"Authorization": f"Bearer {MCP_BEARER}"} if MCP_BEARER else {}
@@ -215,6 +222,7 @@ class JutraAgent(Agent):
                     "message": user_text,
                     "display_name": self._state["display_name"],
                     "use_rag": True,
+                    "fast": True,
                 },
             )
         except Exception:
@@ -290,10 +298,7 @@ async def entrypoint(ctx: JobContext):
 
     session = AgentSession(
         stt=inference.STT(model="deepgram/nova-3", language="pl"),
-        llm=inference.LLM(
-            model="openai/gpt-5.4",
-            extra_kwargs={"reasoning_effort": "low"},
-        ),
+        llm=inference.LLM(model=AGENT_LLM_MODEL),
         tts=inference.TTS(
             model="elevenlabs/eleven_multilingual_v2",
             voice="bIHbv24MWmeRgasZH58o",

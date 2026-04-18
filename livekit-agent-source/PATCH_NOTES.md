@@ -32,6 +32,16 @@ Apply this `agent.py` to the `Dakota-1d3e` LiveKit worker repo and redeploy.
 - `JUTRA_BACKEND_URL` — e.g. `https://jutra-277240793881.europe-west4.run.app`
 - `MCP_BEARER_TOKEN` — optional; currently empty for hackathon.
 - `JUTRA_MCP_TIMEOUT` — optional, seconds (default `20`).
+- `AGENT_LLM_MODEL` — optional, LLM model id. Defaults:
+  - `agent.py` (LiveKit Inference): `google/gemini-3-flash-preview`. Safe
+    fallbacks: `google/gemini-2.5-flash`, `openai/gpt-5.4`.
+  - `deploy/agent.py` (direct Vertex AI via `google` plugin):
+    `gemini-3-flash-preview`. Safe fallback: `gemini-2.5-flash`.
+  Note: Gemini 3 Flash is currently Public Preview on Vertex; Google can
+  sunset preview slugs with ~2-week notice (see
+  `integrations/livekit-integration.md` in the backend repo). If replies
+  suddenly 404, flip this env var to the `2.5-flash` variant without
+  redeploying code.
 
 Add these to `.env.local` (or LiveKit Cloud Agents secrets, depending on your deploy).
 
