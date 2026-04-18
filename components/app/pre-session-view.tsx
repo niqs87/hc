@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { cn } from '@/lib/shadcn/utils';
 import { useJutraPrefs } from '@/components/app/jutra-prefs-context';
 import { PersonaCard, type PersonaSnapshot } from '@/components/app/persona-card';
+import { PhotoUploadStep } from '@/components/app/photo-upload-step';
 
 type OnboardingState =
   | { status: 'idle' }
@@ -20,7 +21,7 @@ export function PreSessionView({
   onBack: () => void;
   onStartVoice: () => void;
 }) {
-  const { uid, horizon, setHorizon, displayName, setDisplayName, ready } = useJutraPrefs();
+  const { uid, horizon, setHorizon, displayName, setDisplayName, setPhotoUrls, ready } = useJutraPrefs();
   const [persona, setPersona] = useState<PersonaSnapshot | null>(null);
   const [ingestText, setIngestText] = useState('');
   const [ingestBusy, setIngestBusy] = useState(false);
@@ -294,6 +295,14 @@ export function PreSessionView({
             </button>
           </div>
         </div>
+
+        {uid && ready && (
+          <PhotoUploadStep
+            uid={uid}
+            horizon={horizon}
+            onPhotosReady={setPhotoUrls}
+          />
+        )}
 
         <PersonaCard snapshot={persona} />
 

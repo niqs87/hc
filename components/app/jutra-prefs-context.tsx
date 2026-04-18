@@ -14,8 +14,10 @@ export type JutraPrefs = {
 };
 
 type JutraPrefsContextValue = JutraPrefs & {
+  photoUrls: Record<number, string>;
   setHorizon: (h: number) => void;
   setDisplayName: (n: string) => void;
+  setPhotoUrls: (urls: Record<number, string>) => void;
   ready: boolean;
 };
 
@@ -32,6 +34,7 @@ export function JutraPrefsProvider({
   const [uid, setUid] = useState('');
   const [horizon, setHorizonState] = useState(defaultHorizon);
   const [displayName, setDisplayNameState] = useState('Ty');
+  const [photoUrls, setPhotoUrls] = useState<Record<number, string>>({});
 
   useEffect(() => {
     try {
@@ -77,11 +80,13 @@ export function JutraPrefsProvider({
       uid,
       horizon,
       displayName,
+      photoUrls,
       setHorizon,
       setDisplayName,
+      setPhotoUrls,
       ready,
     }),
-    [uid, horizon, displayName, ready]
+    [uid, horizon, displayName, photoUrls, ready]
   );
 
   return <JutraPrefsContext.Provider value={value}>{children}</JutraPrefsContext.Provider>;
