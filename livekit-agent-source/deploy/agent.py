@@ -16,11 +16,11 @@ from livekit.agents import (
     StopResponse,
     TurnHandlingOptions,
     cli,
-    inference,
     llm,
     room_io,
 )
 from livekit.plugins import (
+    google as lkgoogle,
     noise_cancellation,
     silero,
 )
@@ -32,12 +32,70 @@ logger = logging.getLogger("agent-Dakota-1d3e")
 
 load_dotenv(".env.local")
 
+
+# --- Google Cloud ADC bootstrap ----------------------------------------------
+# We run on LiveKit Cloud (not GCP), so Application Default Credentials aren't
+# present. The agent receives a service account JSON as a LiveKit secret
+# (`GOOGLE_APPLICATION_CREDENTIALS_JSON`); we write it to disk at startup and
+# point `GOOGLE_APPLICATION_CREDENTIALS` at it so all three google plugins
+# (STT, TTS, Vertex LLM) pick it up via ADC.
+def _bootstrap_google_adc() -> None:
+    raw = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS_JSON", "").strip()
+    if not raw:
+        return
+    path = "/tmp/gcp-sa.json"
+    try:
+        # Validate it parses as JSON before writing.
+        json.loads(raw)
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write(raw)
+        os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = path
+        # Default VertexAI on, point at the jutra project & region unless
+        # the operator has already overridden these via secrets.
+        os.environ.setdefault("GOOGLE_GENAI_USE_VERTEXAI", "1")
+        os.environ.setdefault("GOOGLE_CLOUD_PROJECT", "jutra-493710")
+        os.environ.setdefault("GOOGLE_CLOUD_LOCATION", "europe-west4")
+        logger.info(
+            "google ADC: wrote SA key to %s, project=%s location=%s",
+            path,
+            os.environ.get("GOOGLE_CLOUD_PROJECT"),
+            os.environ.get("GOOGLE_CLOUD_LOCATION"),
+        )
+    except Exception:
+        logger.exception("failed to bootstrap google ADC from GOOGLE_APPLICATION_CREDENTIALS_JSON")
+
+
+_bootstrap_google_adc()
+
 # --- Backend wiring (jutra MCP over Streamable HTTP) --------------------------
 
-JUTRA_BACKEND_URL = os.environ.get("JUTRA_BACKEND_URL", "").rstrip("/")
+JUTRA_BACKEND_URL = os.environ.get("JUTRA_BACKEND_URL", "").strip().rstrip("/")
 JUTRA_MCP_URL = f"{JUTRA_BACKEND_URL}/mcp/" if JUTRA_BACKEND_URL else ""
 MCP_BEARER = os.environ.get("MCP_BEARER_TOKEN", "").strip()
 MCP_CALL_TIMEOUT_S = float(os.environ.get("JUTRA_MCP_TIMEOUT", "20"))
+
+logger.info(
+    "jutra backend config: JUTRA_BACKEND_URL=%r JUTRA_MCP_URL=%r has_bearer=%s",
+    JUTRA_BACKEND_URL,
+    JUTRA_MCP_URL,
+    bool(MCP_BEARER),
+)
+
+
+# Strip the EU AI Act disclosure prefix the backend prepends to every
+# chat_with_future_self reply. For voice UX we announce the disclosure
+# once at session start (see JutraAgent.on_enter) and then speak replies
+# without the repeated "[Rozmawiasz z symulacją jutra (AI)...]" header.
+_DISCLOSURE_RE = re.compile(
+    r"^\s*\[\s*Rozmawiasz z symulacj[aą]\s+jutra[^\]]*\]\s*",
+    flags=re.IGNORECASE,
+)
+
+
+def _strip_disclosure(text: str) -> str:
+    if not text:
+        return text
+    return _DISCLOSURE_RE.sub("", text, count=1).strip()
 
 
 def _mcp_headers() -> dict:
@@ -132,7 +190,7 @@ JĘZYK I TON
 PRZEPŁYW (ścisły)
 1. Otrzymujesz tekst STT od użytkownika.
 2. System wywołuje `chat_with_future_self_tool` z polami {{uid, horizon, message, display_name, use_rag: true}}.
-3. Zwrócone pole `response` czytasz DOSŁOWNIE w TTS. Nie skracasz, nie parafrazujesz, nie usuwasz prefiksu "[Rozmawiasz z symulacją jutra (AI)...]".
+3. Zwrócone pole `response` czytasz DOSŁOWNIE w TTS. Nie skracasz, nie parafrazujesz. Prefiks "[Rozmawiasz z symulacją jutra (AI)...]" jest zdejmowany automatycznie przez system (ujawnienie jest wypowiadane raz na starcie sesji), więc sam go nie odczytujesz.
 4. Jeśli odpowiedź oznacza kryzys, czytasz ją w całości i nie dopytujesz — czekasz, aż użytkownik znów się odezwie.
 
 ZAKAZY
@@ -192,7 +250,12 @@ class JutraAgent(Agent):
     async def on_enter(self):
         name = self._state.get("display_name") or "Ty"
         horizon = self._state["horizon"]
-        greeting = f"Cześć {name}. Tu ty za {horizon} lat. Mów, słucham."
+        greeting = (
+            f"Cześć {name}. Tu ty za {horizon} lat. "
+            "Zanim zaczniemy — rozmawiasz z symulacją jutra, czyli ze sztuczną inteligencją, "
+            "nie z prawdziwą przyszłą wersją siebie. Traktuj to jako inspirację. "
+            "A teraz — mów, słucham."
+        )
         try:
             handle = self.session.say(greeting, allow_interruptions=True)
             await handle
@@ -217,8 +280,15 @@ class JutraAgent(Agent):
                     "use_rag": True,
                 },
             )
-        except Exception:
-            logger.exception("chat_with_future_self_tool failed")
+        except Exception as exc:
+            logger.error(
+                "chat_with_future_self_tool failed uid=%s horizon=%s mcp_url=%r err=%s: %s",
+                self._state.get("uid"),
+                self._state.get("horizon"),
+                JUTRA_MCP_URL,
+                type(exc).__name__,
+                exc,
+            )
             try:
                 await self.session.say(
                     "Chwila, mam problem z połączeniem. Spróbuj powtórzyć.",
@@ -231,6 +301,7 @@ class JutraAgent(Agent):
         response_text = ""
         if isinstance(out, dict):
             response_text = str(out.get("response") or out.get("text") or "").strip()
+        response_text = _strip_disclosure(response_text)
         if not response_text:
             response_text = "Chwila, zbieram myśli."
 
@@ -263,15 +334,28 @@ async def _boot_persona(state: dict) -> tuple[dict, dict]:
             "get_persona_snapshot",
             {"uid": state["uid"], "horizon": state["horizon"]},
         ) or {}
-    except Exception:
-        logger.exception("get_persona_snapshot failed; continuing with empty persona")
+    except Exception as exc:
+        logger.error(
+            "get_persona_snapshot failed for uid=%s horizon=%s mcp_url=%r err=%s: %s",
+            state.get("uid"),
+            state.get("horizon"),
+            JUTRA_MCP_URL,
+            type(exc).__name__,
+            exc,
+        )
     try:
         chronicle = await _mcp_call(
             "get_chronicle_tool",
             {"uid": state["uid"], "limit": 20},
         ) or {}
-    except Exception:
-        logger.exception("get_chronicle_tool failed; continuing with empty chronicle")
+    except Exception as exc:
+        logger.error(
+            "get_chronicle_tool failed uid=%s mcp_url=%r err=%s: %s",
+            state.get("uid"),
+            JUTRA_MCP_URL,
+            type(exc).__name__,
+            exc,
+        )
     return persona, chronicle
 
 
@@ -288,20 +372,27 @@ async def entrypoint(ctx: JobContext):
 
     persona, chronicle = await _boot_persona(state)
 
+    # Direct Google Cloud providers (STT/TTS/Vertex Gemini). We bypass the
+    # LiveKit inference gateway entirely because the project's Gateway
+    # Credits are exhausted and not the intended billing path for us.
     session = AgentSession(
-        stt=inference.STT(model="deepgram/nova-3", language="pl"),
-        llm=inference.LLM(
-            model="openai/gpt-5.4",
-            extra_kwargs={"reasoning_effort": "low"},
+        stt=lkgoogle.STT(
+            languages=["pl-PL"],
+            model="latest_long",
         ),
-        tts=inference.TTS(
-            model="elevenlabs/eleven_multilingual_v2",
-            voice="bIHbv24MWmeRgasZH58o",
-            language="pl",
+        llm=lkgoogle.LLM(
+            model="gemini-2.5-flash",
+            vertexai=True,
+            project=os.environ.get("GOOGLE_CLOUD_PROJECT", "jutra-493710"),
+            location=os.environ.get("GOOGLE_CLOUD_LOCATION", "europe-west4"),
+        ),
+        tts=lkgoogle.TTS(
+            language="pl-PL",
+            voice_name=os.environ.get("GOOGLE_TTS_VOICE", "pl-PL-Wavenet-E"),
+            gender="female",
         ),
         turn_handling=TurnHandlingOptions(turn_detection=MultilingualModel()),
         vad=ctx.proc.userdata["vad"],
-        preemptive_generation=False,
     )
 
     await session.start(

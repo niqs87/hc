@@ -27,6 +27,18 @@ interface AppProps {
   appConfig: AppConfig;
 }
 
+function AppGate({ appConfig }: AppProps) {
+  const prefs = useJutraPrefs();
+  if (!prefs.ready || !prefs.uid) {
+    return (
+      <main className="relative grid min-h-svh grid-cols-1 place-content-center py-24">
+        <div className="text-center text-sm text-muted-foreground">Ładowanie jutra…</div>
+      </main>
+    );
+  }
+  return <AppSessionInner appConfig={appConfig} />;
+}
+
 function AppSessionInner({ appConfig }: AppProps) {
   const prefs = useJutraPrefs();
   const jutraToken = useJutraTokenSource(
@@ -77,7 +89,7 @@ function AppSessionInner({ appConfig }: AppProps) {
 export function App({ appConfig }: AppProps) {
   return (
     <JutraPrefsProvider defaultHorizon={appConfig.defaultHorizon}>
-      <AppSessionInner appConfig={appConfig} />
+      <AppGate appConfig={appConfig} />
     </JutraPrefsProvider>
   );
 }
