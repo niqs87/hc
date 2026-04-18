@@ -1,8 +1,9 @@
 'use client';
 
-import { type ComponentProps, useEffect, useRef, useState } from 'react';
+import { type ComponentProps, useEffect, useMemo, useRef, useState } from 'react';
 import { Track } from 'livekit-client';
 import {
+  ChevronUpIcon,
   Loader,
   LoaderIcon,
   MessageSquareTextIcon,
@@ -15,7 +16,8 @@ import {
   VideoOffIcon,
 } from 'lucide-react';
 import { type MotionProps, motion } from 'motion/react';
-import { useChat } from '@livekit/components-react';
+import { Select as SelectPrimitive } from 'radix-ui';
+import { useChat, useMaybeRoomContext, useMediaDeviceSelect } from '@livekit/components-react';
 import { AgentDisconnectButton } from '@/components/agents-ui/agent-disconnect-button';
 import { Button } from '@/components/ui/button';
 import { Toggle } from '@/components/ui/toggle';
@@ -103,6 +105,131 @@ function JutraControlTile({
         {label}
       </span>
     </Toggle>
+  );
+}
+
+interface JutraDeviceSelectProps {
+  kind: MediaDeviceKind;
+  tone: 'mint' | 'coral';
+  ariaLabel: string;
+  onActiveDeviceChange?: (deviceId: string) => void;
+  onMediaDeviceError?: (error: Error) => void;
+}
+
+function JutraDeviceSelect({
+  kind,
+  tone,
+  ariaLabel,
+  onActiveDeviceChange,
+  onMediaDeviceError,
+}: JutraDeviceSelectProps) {
+  const room = useMaybeRoomContext();
+  const [open, setOpen] = useState(false);
+  const [requestPermissions, setRequestPermissions] = useState(false);
+  const { devices, activeDeviceId, setActiveMediaDevice } = useMediaDeviceSelect({
+    room,
+    kind,
+    requestPermissions,
+    onError: onMediaDeviceError,
+  });
+
+  const filteredDevices = useMemo(() => devices.filter((d) => d.deviceId !== ''), [devices]);
+
+  const handleOpenChange = (nextOpen: boolean) => {
+    setOpen(nextOpen);
+    if (nextOpen) setRequestPermissions(true);
+  };
+
+  const handleValueChange = (deviceId: string) => {
+    setActiveMediaDevice(deviceId);
+    onActiveDeviceChange?.(deviceId);
+  };
+
+  if (filteredDevices.length < 2) return null;
+
+  const accent = tone === 'mint' ? 'var(--color-mint)' : 'var(--color-coral)';
+  const accentShadow = tone === 'mint' ? 'var(--color-dark-mint)' : 'var(--color-dark-coral)';
+
+  return (
+    <SelectPrimitive.Root
+      open={open}
+      onOpenChange={handleOpenChange}
+      value={activeDeviceId}
+      onValueChange={handleValueChange}
+    >
+      <SelectPrimitive.Trigger
+        aria-label={ariaLabel}
+        title={ariaLabel}
+        className={cn(
+          'pixel-tile clip-pixel-4 flex h-16 w-11 items-center justify-center border-2'
+        )}
+        style={{
+          background: 'transparent',
+          borderColor: accent,
+          color: accent,
+          ['--tile-shadow' as string]: accentShadow,
+        }}
+      >
+        <ChevronUpIcon className="size-4" />
+      </SelectPrimitive.Trigger>
+
+      <SelectPrimitive.Portal>
+        <SelectPrimitive.Content
+          position="popper"
+          side="top"
+          align="start"
+          sideOffset={10}
+          className={cn(
+            'jutra-glass clip-pixel-8 z-50 max-h-[260px] min-w-[260px] overflow-hidden',
+            'data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95',
+            'data-[state=closed]:animate-out data-[state=closed]:fade-out-0'
+          )}
+          style={{
+            boxShadow: '0 0 0 2px rgba(114,255,169,0.25), 0 20px 60px -20px rgba(13,10,31,0.8)',
+          }}
+        >
+          <div
+            className="px-3 pt-1 pb-2 font-mono text-[10px] tracking-[0.3em] uppercase"
+            style={{ color: 'var(--color-mint)', opacity: 0.7 }}
+          >
+            {'> źródło sygnału'}
+          </div>
+          <SelectPrimitive.Viewport className="max-h-[220px] overflow-y-auto px-1 pb-2">
+            {filteredDevices.map((device) => (
+              <SelectPrimitive.Item
+                key={device.deviceId}
+                value={device.deviceId}
+                className={cn(
+                  'relative flex cursor-pointer items-center gap-2 px-3 py-2 select-none',
+                  'font-mono text-[13px] tracking-[0.02em] text-[color:var(--color-light-mint)]',
+                  'outline-none',
+                  'data-[highlighted]:bg-[color:var(--color-mint)]/12 data-[highlighted]:text-[color:var(--color-mint)]',
+                  'data-[state=checked]:text-[color:var(--color-mint)]'
+                )}
+              >
+                <span
+                  aria-hidden
+                  className="inline-flex size-3 shrink-0 items-center justify-center"
+                >
+                  <SelectPrimitive.ItemIndicator>
+                    <span
+                      className="block size-2"
+                      style={{
+                        background: 'var(--color-mint)',
+                        boxShadow: '0 0 6px var(--color-mint)',
+                      }}
+                    />
+                  </SelectPrimitive.ItemIndicator>
+                </span>
+                <SelectPrimitive.ItemText>
+                  {device.label || 'Urządzenie bez nazwy'}
+                </SelectPrimitive.ItemText>
+              </SelectPrimitive.Item>
+            ))}
+          </SelectPrimitive.Viewport>
+        </SelectPrimitive.Content>
+      </SelectPrimitive.Portal>
+    </SelectPrimitive.Root>
   );
 }
 
@@ -319,7 +446,15 @@ export function AgentControlBar({
   const { send } = useChat();
   const publishPermissions = usePublishPermissions();
   const [isChatOpenUncontrolled, setIsChatOpenUncontrolled] = useState(isChatOpen);
-  const { cameraToggle, microphoneToggle, screenShareToggle } = useInputControls({
+  const {
+    cameraToggle,
+    microphoneToggle,
+    screenShareToggle,
+    handleAudioDeviceChange,
+    handleVideoDeviceChange,
+    handleMicrophoneDeviceSelectError,
+    handleCameraDeviceSelectError,
+  } = useInputControls({
     onDeviceError,
     saveUserChoices,
   });
@@ -366,35 +501,53 @@ export function AgentControlBar({
       </motion.div>
 
       <div className="flex items-stretch gap-2">
-        <div className="flex grow flex-wrap gap-2">
-          {/* Microphone */}
+        <div className="flex grow flex-wrap items-stretch gap-2">
+          {/* Microphone + device picker */}
           {visibleControls.microphone && (
-            <JutraControlTile
-              ariaLabel="Przełącz mikrofon"
-              title={microphoneToggle.enabled ? 'Wycisz mikrofon' : 'Włącz mikrofon'}
-              label={microphoneToggle.enabled ? 'mikrofon' : 'wycisz.'}
-              icon={microphoneToggle.enabled ? <MicIcon /> : <MicOffIcon />}
-              pressed={microphoneToggle.enabled}
-              pending={microphoneToggle.pending}
-              disabled={microphoneToggle.pending}
-              onPressedChange={microphoneToggle.toggle}
-              activeTone="mint"
-            />
+            <div className="flex items-stretch gap-1">
+              <JutraControlTile
+                ariaLabel="Przełącz mikrofon"
+                title={microphoneToggle.enabled ? 'Wycisz mikrofon' : 'Włącz mikrofon'}
+                label={microphoneToggle.enabled ? 'mikrofon' : 'wycisz.'}
+                icon={microphoneToggle.enabled ? <MicIcon /> : <MicOffIcon />}
+                pressed={microphoneToggle.enabled}
+                pending={microphoneToggle.pending}
+                disabled={microphoneToggle.pending}
+                onPressedChange={microphoneToggle.toggle}
+                activeTone="mint"
+              />
+              <JutraDeviceSelect
+                kind="audioinput"
+                tone={microphoneToggle.enabled ? 'mint' : 'coral'}
+                ariaLabel="Wybierz mikrofon"
+                onActiveDeviceChange={handleAudioDeviceChange}
+                onMediaDeviceError={handleMicrophoneDeviceSelectError}
+              />
+            </div>
           )}
 
-          {/* Camera */}
+          {/* Camera + device picker */}
           {visibleControls.camera && (
-            <JutraControlTile
-              ariaLabel="Przełącz kamerę"
-              title={cameraToggle.enabled ? 'Wyłącz kamerę' : 'Włącz kamerę'}
-              label={cameraToggle.enabled ? 'kamera' : 'kam. off'}
-              icon={cameraToggle.enabled ? <VideoIcon /> : <VideoOffIcon />}
-              pressed={cameraToggle.enabled}
-              pending={cameraToggle.pending}
-              disabled={cameraToggle.pending}
-              onPressedChange={cameraToggle.toggle}
-              activeTone="mint"
-            />
+            <div className="flex items-stretch gap-1">
+              <JutraControlTile
+                ariaLabel="Przełącz kamerę"
+                title={cameraToggle.enabled ? 'Wyłącz kamerę' : 'Włącz kamerę'}
+                label={cameraToggle.enabled ? 'kamera' : 'kam. off'}
+                icon={cameraToggle.enabled ? <VideoIcon /> : <VideoOffIcon />}
+                pressed={cameraToggle.enabled}
+                pending={cameraToggle.pending}
+                disabled={cameraToggle.pending}
+                onPressedChange={cameraToggle.toggle}
+                activeTone="mint"
+              />
+              <JutraDeviceSelect
+                kind="videoinput"
+                tone={cameraToggle.enabled ? 'mint' : 'coral'}
+                ariaLabel="Wybierz kamerę"
+                onActiveDeviceChange={handleVideoDeviceChange}
+                onMediaDeviceError={handleCameraDeviceSelectError}
+              />
+            </div>
           )}
 
           {/* Screen Share */}
