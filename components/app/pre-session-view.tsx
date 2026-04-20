@@ -1,9 +1,8 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { cn } from '@/lib/shadcn/utils';
 import { useJutraPrefs } from '@/components/app/jutra-prefs-context';
-import { PersonaCard, type PersonaSnapshot } from '@/components/app/persona-card';
 import { PhotoUploadStep } from '@/components/app/photo-upload-step';
 
 export function PreSessionView({
@@ -29,26 +28,7 @@ export function PreSessionView({
     setAgedPhotoUrl,
     ready,
   } = useJutraPrefs();
-  const [persona, setPersona] = useState<PersonaSnapshot | null>(null);
   const [seedError, setSeedError] = useState<string | null>(null);
-
-  const refreshPersona = useCallback(async () => {
-    if (!uid) return;
-    try {
-      const res = await fetch(
-        `/api/jutra/persona?uid=${encodeURIComponent(uid)}`,
-        { cache: 'no-store' }
-      );
-      const data = (await res.json()) as PersonaSnapshot & { error?: string };
-      if (res.ok) {
-        setPersona(data);
-      } else {
-        setPersona(null);
-      }
-    } catch {
-      setPersona(null);
-    }
-  }, [uid]);
 
   useEffect(() => {
     if (!ready || !uid) return;
@@ -85,9 +65,8 @@ export function PreSessionView({
       } catch (e) {
         setSeedError(e instanceof Error ? e.message : 'seed failed');
       }
-      await refreshPersona();
     })();
-  }, [ready, uid, displayName, baseAge, gender, setGender, refreshPersona]);
+  }, [ready, uid, displayName, baseAge, gender, setGender]);
 
   return (
     <div className="flex flex-col items-center px-6 pb-28 text-center">
@@ -170,8 +149,6 @@ export function PreSessionView({
         {uid && ready && (
           <PhotoUploadStep uid={uid} onAgedPhotoReady={setAgedPhotoUrl} />
         )}
-
-        <PersonaCard snapshot={persona} />
 
         <p className="text-center text-[10px] text-muted-foreground/60">jutra · symulacja AI</p>
 

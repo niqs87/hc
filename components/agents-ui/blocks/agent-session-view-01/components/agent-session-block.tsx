@@ -3,7 +3,11 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { AnimatePresence, type MotionProps, motion } from 'motion/react';
 import { useAgent, useSessionContext, useSessionMessages } from '@livekit/components-react';
-import { AgentChatTranscript } from '@/components/agents-ui/agent-chat-transcript';
+import {
+  AgentChatTranscript,
+  type ChatHistoryTurn,
+} from '@/components/agents-ui/agent-chat-transcript';
+import { useJutraPrefs } from '@/components/app/jutra-prefs-context';
 import {
   AgentControlBar,
   type AgentControlBarControls,
@@ -225,6 +229,37 @@ export function AgentSessionView_01({
   const [chatOpen, setChatOpen] = useState(false);
   const scrollAreaRef = useRef<HTMLDivElement>(null);
   const { state: agentState } = useAgent();
+  const { uid } = useJutraPrefs();
+  const [history, setHistory] = useState<ChatHistoryTurn[]>([]);
+  const historyFetchedRef = useRef(false);
+
+  useEffect(() => {
+    if (!uid || historyFetchedRef.current) return;
+    historyFetchedRef.current = true;
+    void (async () => {
+      try {
+        const res = await fetch(
+          `/api/jutra/history?uid=${encodeURIComponent(uid)}&limit=200`,
+          { cache: 'no-store' }
+        );
+        if (!res.ok) return;
+        const data = (await res.json()) as {
+          turns?: { role?: string; text?: string; ts?: string }[];
+        };
+        const turns = (data.turns ?? [])
+          .filter(
+            (t): t is { role: 'user' | 'assistant'; text: string; ts?: string } =>
+              (t.role === 'user' || t.role === 'assistant') &&
+              typeof t.text === 'string' &&
+              t.text.trim().length > 0
+          )
+          .map((t) => ({ role: t.role, text: t.text, ts: t.ts }));
+        setHistory(turns);
+      } catch {
+        // non-fatal
+      }
+    })();
+  }, [uid]);
 
   useEffect(() => {
     if (futureSelfPhotoUrl) {
@@ -285,11 +320,12 @@ export function AgentSessionView_01({
           {chatOpen && (
             <motion.div
               {...CHAT_MOTION_PROPS}
-              className="flex h-full w-full flex-col gap-4 space-y-3 transition-opacity duration-300 ease-out"
+              className="flex h-full min-h-0 w-full flex-col gap-4 space-y-3 transition-opacity duration-300 ease-out"
             >
               <AgentChatTranscript
                 agentState={agentState}
                 messages={messages}
+                history={history}
                 className="mx-auto w-full max-w-2xl [&_.is-user>div]:rounded-[22px] [&>div>div]:px-4 [&>div>div]:pt-40 md:[&>div>div]:px-6"
               />
             </motion.div>
@@ -333,7 +369,6 @@ export function AgentSessionView_01({
         )}
         <div className="relative mx-auto max-w-2xl pb-3 md:pb-12">
           <p className="pb-2 text-center text-[10px] text-muted-foreground/60">jutra · symulacja AI</p>
-          <Fade bottom className="absolute inset-x-0 top-0 h-8 -translate-y-full" />
           <AgentControlBar
             variant="livekit"
             controls={controls}

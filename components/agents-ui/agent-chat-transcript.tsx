@@ -11,9 +11,16 @@ import {
 } from '@/components/ai-elements/conversation';
 import { cn } from '@/lib/shadcn/utils';
 
+export type ChatHistoryTurn = {
+  role: 'user' | 'assistant';
+  text: string;
+  ts?: string;
+};
+
 export interface AgentChatTranscriptProps extends ComponentProps<'div'> {
   agentState?: AgentState;
   messages?: ReceivedMessage[];
+  history?: ChatHistoryTurn[];
   className?: string;
 }
 
@@ -103,12 +110,26 @@ function ThinkingIndicator() {
 export function AgentChatTranscript({
   agentState,
   messages = [],
+  history = [],
   className,
   ...props
 }: AgentChatTranscriptProps) {
+  const locale = typeof navigator !== 'undefined' ? navigator.language : 'pl-PL';
   const lastAgentIndex = messages.reduce(
     (acc, msg, i) => (msg.from?.isLocal === false ? i : acc),
     -1
+  );
+
+  // De-dupe: drop a history entry if the live transcript already contains an
+  // identical (role + text) message. The live feed wins because it carries the
+  // canonical id/timestamp from the LiveKit session.
+  const liveKeys = new Set(
+    messages.map(
+      (m) => `${m.from?.isLocal ? 'user' : 'agent'}::${(m.message ?? '').trim()}`
+    )
+  );
+  const filteredHistory = history.filter(
+    (h) => !liveKeys.has(`${h.role === 'user' ? 'user' : 'agent'}::${h.text.trim()}`)
   );
 
   return (
@@ -121,8 +142,38 @@ export function AgentChatTranscript({
           >
             {'> PORTAL CZASU · LOG ROZMOWY'}
           </div>
+          {filteredHistory.length > 0 && (
+            <div className="mb-4 opacity-70">
+              <div
+                className="mb-2 font-mono text-[10px] tracking-[0.3em] uppercase opacity-70"
+                style={{ color: 'var(--color-mint)' }}
+              >
+                {'> HISTORIA'}
+              </div>
+              {filteredHistory.map((h, i) => {
+                const from: 'agent' | 'user' = h.role === 'user' ? 'user' : 'agent';
+                const time = h.ts
+                  ? new Date(h.ts).toLocaleTimeString(locale, { timeStyle: 'short' })
+                  : '';
+                return (
+                  <TerminalMessage
+                    key={`history-${i}-${h.ts ?? ''}`}
+                    from={from}
+                    message={h.text}
+                    time={time}
+                    isLast={false}
+                  />
+                );
+              })}
+              <div
+                className="mt-2 mb-2 font-mono text-[10px] tracking-[0.3em] uppercase opacity-50"
+                style={{ color: 'var(--color-mint)' }}
+              >
+                {'> — TERAZ —'}
+              </div>
+            </div>
+          )}
           {messages.map((m, i) => {
-            const locale = typeof navigator !== 'undefined' ? navigator.language : 'pl-PL';
             const time = new Date(m.timestamp).toLocaleTimeString(locale, { timeStyle: 'full' });
             const from: 'agent' | 'user' = m.from?.isLocal ? 'user' : 'agent';
             return (

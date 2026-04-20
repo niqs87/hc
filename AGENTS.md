@@ -295,6 +295,17 @@ export AGENT_NAME=Dakota-1d3e
 
 Frontend never exposes `JUTRA_BACKEND_URL` to the browser — all backend calls go through server-side proxies in `app/api/jutra/*`.
 
+### Chat history on session open
+
+`AgentSessionView_01` fetches `/api/jutra/history?uid=<uid>&limit=200` once on mount and renders the returned turns above the live LiveKit transcript under a `> HISTORIA` / `> — TERAZ —` separator. The proxy lives at `app/api/jutra/history/route.ts` and forwards to backend `GET /users/{uid}/chat/history` with the MCP bearer. De-dupe: if a historical turn's `(role, text)` matches a live message, the live version wins (it carries the canonical LiveKit timestamp).
+
+Relevant files:
+- `components/agents-ui/blocks/agent-session-view-01/components/agent-session-block.tsx` — fetch + wiring
+- `components/agents-ui/agent-chat-transcript.tsx` — renders the history block above live messages
+- `components/ai-elements/conversation.tsx` — switched to `overflow-y-auto` so long histories scroll
+
+Failure mode: history fetch is best-effort — any error just leaves the history list empty, live transcript still works.
+
 ---
 
 ## 8. Backend deploy (hackcarpathia)
@@ -322,6 +333,7 @@ Backend models (see `hackcarpathia/scripts/deploy.sh` env vars):
 
 | Symptom | Likely cause | Fix |
 |---|---|---|
+| Frontend and worker both get HTTP 403 from backend | Backend Cloud Run `allUsers → roles/run.invoker` binding revoked (intentional pause) | `gcloud run services add-iam-policy-binding jutra --region=europe-west4 --member=allUsers --role=roles/run.invoker` |
 | Frontend shows transcript but no audio reply | TTS or MCP failure closes session; next `session.say` hits "AgentSession is closing" | Tail logs for the **first** error per session: usually a TTS 4xx or an MCP timeout. |
 | `chat_with_future_self_tool failed ... TimeoutError` | `JUTRA_MCP_TIMEOUT` too tight for backend reasoning | Bump to `60` (already the default) via §6 |
 | `JUTRA_BACKEND_URL is not set` in worker logs | Secret-wipe gotcha | Restore full secret set via §6 |
